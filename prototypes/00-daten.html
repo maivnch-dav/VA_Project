@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenüberblick – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/net.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>
+    .kpi-spark { width: 100%; height: 28px; display: block; }
+    .anom-row.is-hit { background: color-mix(in srgb, var(--chart-accent) 12%, transparent); }
+    .cal-scroll { overflow-x: auto; }
+    .cal-inner { min-width: 980px; }
+    .net-map { height: 520px; border-radius: 6px; overflow: hidden; }
+    @media (max-width: 639px) { .net-map { height: 400px; } }
+    .net-select { width: auto; min-height: 28px; background: var(--chart-hover); color: var(--ink); border-color: var(--axis); }
+    .net-select:disabled { opacity: .55; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div id="nav"></div>
+
+<main class="max-w-screen-xl mx-auto px-4 py-5 lg:py-7">
+  <div id="banner" class="mb-3"></div>
+
+  <!-- Header + filters -->
+  <header class="has-snow flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-6 mb-5 py-10 lg:py-16">
+    <canvas class="snow" id="hdrSnow" aria-hidden="true"></canvas>
+    <div class="min-w-0">
+      <h1 class="display text-4xl lg:text-5xl">Datenüberblick</h1>
+    </div>
+    <form id="filters" class="flex flex-wrap items-end gap-3 lg:ml-auto" onsubmit="return false" aria-label="Filter">
+      <label class="text-xs text-ink2">Von<select id="fFrom" class="input mt-1" style="width:auto"></select></label>
+      <label class="text-xs text-ink2">Bis<select id="fTo" class="input mt-1" style="width:auto"></select></label>
+      <label class="text-xs text-ink2">Region<select id="fRegion" class="input mt-1" style="width:auto"></select></label>
+      <div class="text-xs text-ink2">Daten
+        <div class="seg mt-1 flex" role="group" aria-label="Datenmodus">
+          <button type="button" data-mode="preview">Vorschau</button><button type="button" data-mode="real">Nur echte</button>
+        </div>
+      </div>
+    </form>
+  </header>
+
+  <!-- KPI tiles (light) -->
+  <section id="kpis" data-rail="Kennzahlen" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5" aria-label="Kennzahlen"></section>
+
+  <!-- US-29: network map -->
+  <section class="viz-card p-4 mb-5 min-w-0" aria-label="Netzkarte" data-rail="Netzkarte">
+    <div class="flex items-baseline gap-2 flex-wrap">
+      <h2 class="font-semibold">Netzkarte: Pünktlichkeit je Station</h2><span class="text-xs text-ink2" id="netInfo"></span>
+      <span class="ml-auto text-xs font-semibold"><a href="03-h3.html">→ H3</a> · <a href="04-h4.html">→ H4</a> · <a href="05-h5.html">→ H5</a></span>
+    </div>
+    <div class="flex flex-wrap items-center gap-3 my-2 text-xs text-ink2">
+      <label>Verkehrsmittel <select id="fNetMode" class="input net-select"></select></label>
+      <label>Stationen <select id="fNetMin" class="input net-select"></select></label>
+    </div>
+    <div id="netLegend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 mb-2"></div>
+    <p class="text-xs text-ink2 mb-2" id="netNote"></p>
+    <div id="netmap" class="net-map"></div>
+    <div class="source">Quellen: Pünktlichkeit = 1 − Anteil Halte ≥ 3 min, Ist-Daten (history), opentransportdata.swiss · Netz: GTFS Fahrplan 2026 (opentransportdata.swiss) · Kartengrundlage © OpenStreetMap, © CARTO. Punktgrösse = Halte pro Tag. Klick auf eine Station → Region als Filter.</div>
+  </section>
+
+  <div id="visD3"></div>
+
+  <!-- Trends -->
+  <section class="viz-card p-4 mb-5 min-w-0" data-rail="Trends">
+    <div class="flex items-baseline gap-2 flex-wrap">
+      <h2 class="font-semibold">Trends pro Monat</h2><span class="text-xs text-ink2" id="trendRegion"></span>
+      <a href="05-h5.html" class="ml-auto text-xs font-semibold">→ H5</a>
+    </div>
+    <div id="trendLegend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 my-2"></div>
+    <div id="trends" class="chart"></div>
+    <div class="source">Quellen: Ist-Daten (history), opentransportdata.swiss · BFS HESTA · MeteoSchweiz SwissMetNet (Neuschneetage = ΔHS ≥ 5 cm, Ø über die Schneestationen)</div>
+  </section>
+
+  <div id="visD4"></div>
+
+  <!-- Calendar + anomalies -->
+  <div class="grid gap-5 mb-5">
+    <section class="viz-card p-4 min-w-0" data-rail="Kalender">
+      <div class="flex items-baseline gap-2 flex-wrap">
+        <h2 class="font-semibold">Kalender: <span id="calMetricLabel"></span> (Schweiz, täglich)</h2>
+        <a href="03-h3.html" class="ml-auto text-xs font-semibold">→ H3</a>
+      </div>
+      <div class="flex flex-wrap items-center gap-3 my-2 text-xs text-ink2">
+        <label>Kennzahl <select id="fMetric" class="input" style="width:auto;min-height:28px;background:var(--chart-hover);color:var(--ink);border-color:var(--axis)"></select></label>
+        <span class="inline-flex items-center gap-1"><span class="dot" style="border:2px solid var(--chart-ink)"></span>auffällig (|z| ≥ 3)</span>
+        <span class="inline-flex items-center gap-1"><span style="width:10px;height:10px;background:var(--chart-empty);border:1px solid var(--chart-axis);display:inline-block"></span>nicht geladen</span>
+      </div>
+      <div class="cal-scroll"><div class="cal-inner"><div id="calendar" class="chart"></div></div></div>
+      <div class="source">Klick auf einen Tag → Zeile in «Auffälligkeiten». Auffällig = robuster z-Wert ≥ 3 gegenüber gleichen Wochentagstypen (Mo–Fr / Sa / So) ± 28 Tage.</div>
+    </section>
+    <section class="card p-4 min-w-0" aria-label="Auffälligkeiten" data-rail="Auffälligkeiten">
+      <div class="flex items-baseline gap-2 mb-1"><h2 class="font-semibold">Auffälligkeiten</h2><span class="text-xs text-ink2" id="anomCount"></span>
+        <button class="btn ml-auto" style="min-height:28px" type="button" onclick="SF.toast('Daten_anomalies_' + new Date().toISOString().slice(0,10) + '.csv heruntergeladen')">CSV ↓</button></div>
+      <p class="text-xs mb-2 p-2 rounded" style="background:var(--v-unknown-bg)">Explorativ – <b>nicht</b> die H3-Definition. Feiertage werden nicht separat behandelt. Kontext ist kein Nachweis einer Ursache.</p>
+      <div class="overflow-x-auto"><table class="tbl num" id="anomTable"></table></div>
+    </section>
+  </div>
+
+  <!-- US-28: seasonal pattern of fresh snow per region -->
+  <section class="viz-card p-4 min-w-0" data-rail="Saisonmuster">
+    <div class="flex items-baseline gap-2 flex-wrap">
+      <h2 class="font-semibold">Saisonmuster: Neuschneetage je Region und Monat</h2>
+      <span class="ml-auto text-xs font-semibold"><a href="03-h3.html">→ H3</a> · <a href="04-h4.html">→ H4</a></span>
+    </div>
+    <p class="text-xs text-ink2 mb-2">Tage mit ΔHS ≥ 5 cm, Ø über die Schneestationen, die die Bahnhöfe der Region nutzen (echte MeteoSchweiz-Daten). Heller = mehr Neuschnee. Klick auf eine Region → Filter.</p>
+    <div id="season" class="chart"></div>
+    <div class="source">Quelle: MeteoSchweiz SwissMetNet (Schneehöhe; ΔHS als Neuschnee-Proxy) · Zuordnung Station → nächste Schneestation</div>
+  </section>
+</main>
+
+<script>
+/* chosen techniques (UI-SPEC §2.9): D3 after the Netzkarte, D4 after Quellmärkte */
+const VIS_DATEN = [
+  { id: "D3", tech: "3.2", prio: "C", title: "Netzkarte als Small Multiples: Winter ↔ Sommer", rail: "Netz im Jahr", cls: "mb-5", sample: "4 von 6 Monaten Beispiel",
+    note: "Sechs kleine Karten, dieselben drei Klassen wie die Netzkarte (Pünktlichkeit gegenüber dem CH-Mittel des Monats, Stationen ≥ 300 Halte/Tag). Vergleich der Jahreszeiten nebeneinander statt Animation; ohne Hintergrundkarte.",
+    links: '<a href="03-h3.html">→ H3</a> · <a href="04-h4.html">→ H4</a>',
+    source: "Quellen: Ist-Daten (history), opentransportdata.swiss – echt für 01/2025 und 09/2026, übrige Monate Beispiel, bis die Ist-Daten geladen sind", draw: (el) => VIS.drawD3(el) },
+  { id: "D4", tech: "3.4", prio: "C", title: "Quellmärkte: Region → Herkunftsland (Treemap)", rail: "Quellmärkte", cls: "mb-5",
+    note: "Fläche = Logiernächte; je Region die Top-5-Herkunftsländer der Schweiz + Übrige, inklusive Inland (~49 %). Klick auf eine Region zoomt hinein, Hover zeigt die genaue Zahl (Flächen lassen sich nur grob vergleichen). Ersetzt das frühere Balkendiagramm der Top-11-Auslandsmärkte (07.11.2026).",
+    links: '<a href="01-h1.html">→ H1</a> · <a href="02-h2.html">→ H2</a>',
+    source: "Quelle: BFS HESTA (px-x-1003020000_103), Logiernächte 01/2025–07/2026 – echte Daten", draw: (el) => VIS.drawD4(el) },
+];
+document.getElementById("visD3").outerHTML = VIS.sections([VIS_DATEN[0]]);
+document.getElementById("visD4").outerHTML = VIS.sections([VIS_DATEN[1]]);
+const P = window.PROTO, DD = P.dash, C = SF.C;
+const MONTHS = [];
+for (let y = 2025; y <= 2026; y++) for (let m = 1; m <= 12; m++) { const k = `${y}-${String(m).padStart(2, "0")}`; if (k <= "2026-09") MONTHS.push(k); }
+const REGIONS = Object.entries(DD.regions).sort((a, b) => +a[0] - +b[0]);
+const SHORT = n => n.replace(" / Vierwaldstättersee", "").replace(" Region", "").replace(" und Solothurn", "/SO").replace(" & Drei-Seen-Land", "/3-Seen");
+const METRICS = { late_share: ["Anteil Halte ≥ 3 min", "%", 100], mean_delay_min: ["Ø Verspätung", "min", 1], cancel_share: ["Ausfallquote", "%", 100] };
+const WD = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const isWinter = ym => { const m = +ym.slice(5); return m >= 11 || m <= 4; };
+
+/* ---------------- state (URL) ---------------- */
+const q = new URLSearchParams(location.search);
+let S = { from: q.get("from") || "2025-01", to: q.get("to") || "2026-09", region: q.get("region") || "CH",
+          metric: q.get("anomaly_metric") || "late_share", mode: q.get("mode") || "real" };
+function writeUrl() {
+  const o = new URLSearchParams();
+  if (S.from !== "2025-01") o.set("from", S.from); if (S.to !== "2026-09") o.set("to", S.to);
+  if (S.region !== "CH") o.set("region", S.region); if (S.metric !== "late_share") o.set("anomaly_metric", S.metric);
+  if (S.mode !== "real") o.set("mode", S.mode);
+  try { history.replaceState(null, "", o.toString() ? `?${o}` : location.pathname); } catch (e) { /* file:// */ }
+}
+
+/* ---------------- daily series: real where loaded, sample elsewhere (preview only) ---------------- */
+const REAL = Object.fromEntries(DD.ch_days.map(d => [d.date, d]));
+const CTX = Object.fromEntries(DD.ctx_days.map(d => [d.date, d]));
+const LOADED = new Set(DD.ch_days.map(d => d.date.slice(0, 7)));
+const BASE = [0.10, 0.105, 0.11, 0.115, 0.125, 0.135, 0.14, 0.14, 0.137, 0.125, 0.115, 0.11];
+function hash(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return ((h >>> 0) % 100000) / 100000; }
+const ALLDAYS = (() => {
+  const out = [], d = new Date(Date.UTC(2025, 0, 1)), end = Date.UTC(2026, 8, 30);
+  while (d.getTime() <= end) {
+    const iso = d.toISOString().slice(0, 10), wd = (d.getUTCDay() + 6) % 7, ctx = CTX[iso] || {};
+    let row = REAL[iso] ? { ...REAL[iso], kind: "echt" } : null;
+    if (!row) {
+      const u = hash(iso), m = +iso.slice(5, 7) - 1, wf = [0.92, 1.05, 1.05, 1.05, 1.05, 0.88, 0.72][wd];
+      let late = BASE[m] * wf * (1 + (u - 0.5) * 0.22 + (hash(iso + "v") - 0.5) * 0.12);
+      if ((ctx.hn_dav ?? 0) >= 10) late += 0.02 + 0.002 * ctx.hn_dav;
+      if ((ctx.precip_mm ?? 0) > 8) late += 0.012;
+      if (hash(iso + "x") < 0.012) late += 0.05;
+      const cancel = 0.003 + 0.025 * late * (1 + (hash(iso + "c") - 0.5) * 0.4) + ((ctx.hn_dav ?? 0) >= 10 ? 0.004 : 0);
+      row = { date: iso, late_share: late, mean_delay_min: 0.55 + 6.5 * late + (hash(iso + "m") - 0.5) * 0.06, cancel_share: cancel,
+              n_stations: Math.round(19500 + hash(iso + "n") * 1500), kind: "Beispiel" };
+    }
+    out.push({ ...row, wd, ym: iso.slice(0, 7), hn_dav: ctx.hn_dav ?? null, precip_mm: ctx.precip_mm ?? null });
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+})();
+const dayAvailable = d => S.mode === "preview" || d.kind === "echt";
+
+/* ---------------- D23: robust z vs same day-type ±28 days ---------------- */
+function anomalies(days, metric) {
+  const type = wd => wd <= 4 ? 0 : wd === 5 ? 1 : 2;
+  return days.map((d, i) => {
+    if (!dayAvailable(d)) return { ...d, z: null, flag: "nicht_geladen" };
+    const ref = [];
+    for (let j = Math.max(0, i - 28); j <= Math.min(days.length - 1, i + 28); j++)
+      if (j !== i && type(days[j].wd) === type(d.wd) && dayAvailable(days[j])) ref.push(days[j][metric]);
+    if (ref.length < 8) return { ...d, z: null, flag: "nicht_bewertbar" };
+    ref.sort((a, b) => a - b);
+    const med = Stats.quantile(ref, 0.5), mad = Stats.quantile(ref.map(v => Math.abs(v - med)).sort((a, b) => a - b), 0.5);
+    // MAD floor (2 % of the median): very regular days would otherwise give absurd z values
+    const z = (d[metric] - med) / (1.4826 * Math.max(mad, 0.02 * Math.abs(med)));
+    return { ...d, z, base: med, flag: z >= 3 ? "hoch" : z <= -3 ? "tief" : "normal" };
+  });
+}
+
+/* ---------------- monthly series for a region ---------------- */
+const REGM = {}; DD.reg_month.forEach(r => { REGM[`${r.reg}|${r.month}`] = r; });
+const NIGHTS = {}; DD.nights_month.forEach(r => { NIGHTS[`${r.reg}|${r.month}`] = r.nights; });
+const SNOW = {}; DD.snow_month.forEach(r => { SNOW[`${r.reg}|${r.month}`] = r.snow_days; });
+const RATIO = (() => { // region/CH ratio from the real months, used for sample months
+  const out = {};
+  for (const [code] of REGIONS) {
+    const rs = [...LOADED].map(m => { const r = REGM[`${code}|${m}`]; const ch = ALLDAYS.filter(d => d.ym === m);
+      return r ? r.late_share / Stats.mean(ch.map(d => d.late_share)) : null; }).filter(x => x);
+    out[code] = rs.length ? Stats.mean(rs) : 1;
+  }
+  return out;
+})();
+function monthly(region) {
+  return MONTHS.map(m => {
+    const ds = ALLDAYS.filter(d => d.ym === m), real = LOADED.has(m);
+    let v = null;
+    if (real || S.mode === "preview") {
+      const use = real ? ds.filter(d => d.kind === "echt") : ds;
+      const ch = k => Stats.mean(use.map(d => d[k]));
+      if (region === "CH") v = { late_share: ch("late_share"), mean_delay_min: ch("mean_delay_min"), cancel_share: ch("cancel_share") };
+      else if (real && REGM[`${region}|${m}`]) v = REGM[`${region}|${m}`];
+      else { const f = RATIO[region] * ((region === "1" || region === "11") && isWinter(m) ? 1.12 : 1);
+        v = { late_share: ch("late_share") * f, mean_delay_min: ch("mean_delay_min") * f, cancel_share: ch("cancel_share") * f * 1.1 }; }
+    }
+    return { m, kind: real ? "echt" : S.mode === "preview" ? "Beispiel" : "nicht geladen", ...v,
+             nights: NIGHTS[`${region === "CH" ? "8100" : region}|${m}`] ?? null, snow_days: SNOW[`${region}|${m}`] ?? null };
+  });
+}
+
+/* ---------------- KPIs ---------------- */
+function spark(vals) {
+  const pts = vals.map((v, i) => [i, v]), ok = pts.filter(p => p[1] !== null && p[1] !== undefined);
+  if (ok.length < 2) return '<svg class="kpi-spark"></svg>';
+  const ys = ok.map(p => p[1]), lo = Math.min(...ys), hi = Math.max(...ys), W = 120, H = 28;
+  const X = i => (i / (vals.length - 1)) * (W - 4) + 2, Y = v => H - 3 - ((v - lo) / ((hi - lo) || 1)) * (H - 6);
+  let path = "", pen = false;
+  pts.forEach(([i, v]) => { if (v === null || v === undefined) { pen = false; return; } path += `${pen ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`; pen = true; });
+  const last = ok.at(-1);
+  return `<svg class="kpi-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="#3987e5" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+    <circle cx="${X(last[0])}" cy="${Y(last[1])}" r="2.5" fill="#3987e5"/></svg>`;
+}
+function yoy(series, key, agg = Stats.mean) {
+  const inP = series.filter(r => r.m >= S.from && r.m <= S.to);
+  const pairs = inP.filter(r => r.m.startsWith("2026") && r[key] != null).map(r => [r, series.find(x => x.m === `2025${r.m.slice(4)}`)]).filter(([, p]) => p && p[key] != null);
+  if (!pairs.length) return { d: null, months: [] };
+  return { d: [agg(pairs.map(p => p[0][key])), agg(pairs.map(p => p[1][key]))], months: pairs.map(p => p[0].m.slice(5)) };
+}
+function renderKpis(ser) {
+  const inP = ser.filter(r => r.m >= S.from && r.m <= S.to), last12 = ser.filter(r => r.m <= S.to).slice(-12);
+  const avg = k => { const v = inP.map(r => r[k]).filter(x => x != null); return v.length ? Stats.mean(v) : null; };
+  const sum = k => { const v = inP.map(r => r[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+  const ist = inP.filter(r => r.kind === "echt").length;
+  const sumF = a => a.reduce((x, y) => x + y, 0);
+  const tiles = [
+    { label: "Ø Verspätung", v: avg("mean_delay_min"), fmt: v => `${v.toFixed(2)} min`, y: yoy(ser, "mean_delay_min"), dfmt: (a, b) => `${a - b >= 0 ? "▲" : "▼"} ${Math.abs(a - b).toFixed(2)} min`, sp: last12.map(r => r.mean_delay_min) },
+    { label: "Pünktlichkeit (< 3 min)", v: avg("late_share") === null ? null : 1 - avg("late_share"), fmt: v => SF.fmtPct(v, 1), y: yoy(ser, "late_share"), dfmt: (a, b) => `${b - a >= 0 ? "▲" : "▼"} ${Math.abs((b - a) * 100).toFixed(1)} pp`, sp: last12.map(r => r.late_share == null ? null : 1 - r.late_share) },
+    { label: "Ausfallquote", v: avg("cancel_share"), fmt: v => SF.fmtPct(v, 2), y: yoy(ser, "cancel_share"), dfmt: (a, b) => `${a - b >= 0 ? "▲" : "▼"} ${Math.abs((a - b) * 100).toFixed(2)} pp`, sp: last12.map(r => r.cancel_share) },
+    { label: "Logiernächte", v: sum("nights"), fmt: v => `${(v / 1e6).toFixed(1)} Mio`, y: yoy(ser, "nights", sumF), dfmt: (a, b) => `${a - b >= 0 ? "▲" : "▼"} ${Math.abs((a / b - 1) * 100).toFixed(1)} %`, sp: last12.map(r => r.nights) },
+    { label: "Neuschneetage (Ø Station)", v: sum("snow_days"), fmt: v => `${v.toFixed(0)} Tage`, y: yoy(ser, "snow_days", sumF), dfmt: (a, b) => `${a - b >= 0 ? "▲" : "▼"} ${Math.abs(a - b).toFixed(0)} Tage`, sp: last12.map(r => r.snow_days) },
+  ];
+  const html = tiles.map(t => {
+    const d = t.y.d, cmp = d ? `<span title="Vergleich mit denselben Monaten 2025: ${t.y.months.join(", ")}">${t.dfmt(d[0], d[1])} ggü. Vorjahr</span>` : '<span title="Keine gemeinsamen Monate">– kein Vorjahresvergleich</span>';
+    return `<div class="card p-3 min-w-0"><div class="text-xs text-ink2">${t.label}</div>
+      <div class="text-2xl font-bold num mt-1">${t.v == null ? "–" : t.fmt(t.v)}</div>
+      <div class="text-xs text-ink2 num">${cmp}</div>${spark(t.sp)}</div>`;
+  }).join("");
+  const cov = inP.length ? ist / inP.length : 0;
+  document.getElementById("kpis").innerHTML = html + `<a href="#quality" class="card p-3 min-w-0 no-underline" style="color:var(--ink)">
+    <div class="text-xs text-ink2">Datenabdeckung Ist-Daten</div><div class="text-2xl font-bold num mt-1">${ist} / ${inP.length}</div>
+    <div class="text-xs text-ink2">Monate geladen · Datenqualität ↗</div>
+    <div class="flex gap-px mt-2" aria-hidden="true">${inP.map(r => `<span title="${r.m}: ${r.kind === "echt" ? "geladen" : "fehlt"}" style="flex:1;height:10px;border-radius:2px;background:${r.kind === "echt" ? C.cat[0] : "var(--axis)"}"></span>`).join("")}</div></a>`;
+}
+
+/* ---------------- Trends (4 rows, shared month axis) ---------------- */
+function renderTrends(ser) {
+  const s = ser.filter(r => r.m >= S.from && r.m <= S.to), x = s.map(r => `${r.m}-15`), base = SF.layout();
+  const rows = [["mean_delay_min", "Ø Verspätung (min)", v => v, C.cat[0]], ["cancel_share", "Ausfallquote (%)", v => v * 100, C.cat[0]],
+                ["nights", "Logiernächte (Mio)", v => v / 1e6, C.cat[1]], ["snow_days", "Neuschneetage (Ø)", v => v, C.seq[4]]];
+  const dom = i => [1 - (i + 1) * 0.25 + 0.04, 1 - i * 0.25];
+  const traces = [], layout = SF.layout({ height: 520, margin: { l: 52, r: 10, t: 6, b: 30 }, hovermode: "x unified",
+    xaxis: { ...base.xaxis, type: "date", tickformat: "%m/%y", dtick: window.innerWidth < 640 ? "M6" : "M2", tickangle: 0, anchor: "y4", showspikes: true, spikemode: "across", spikethickness: 1, spikecolor: C.axis } });
+  rows.forEach(([k, label, f, col], i) => {
+    const ax = i ? `y${i + 1}` : "y", ya = i ? `yaxis${i + 1}` : "yaxis";
+    layout[ya] = { ...base.yaxis, domain: dom(i), title: { text: label, font: { size: 10, color: C.ink2 } }, rangemode: "tozero" };
+    const y = s.map(r => r[k] == null ? null : f(r[k]));
+    if (k === "snow_days") traces.push({ x, y, yaxis: ax, type: "bar", marker: { color: col }, name: label, hovertemplate: `${label}: %{y:.1f}<extra></extra>` });
+    else {
+      traces.push({ x, y, yaxis: ax, type: "scatter", mode: "lines", line: { color: col, width: 2 }, connectgaps: false, name: label, hovertemplate: `${label}: %{y:.2f}<extra></extra>` });
+      if (k !== "nights") {
+        const kinds = s.map(r => r.kind);
+        traces.push({ x, y: y.map((v, j) => kinds[j] === "echt" ? v : null), yaxis: ax, type: "scatter", mode: "markers", hoverinfo: "skip",
+          marker: { color: col, size: 8, line: { color: C.surface, width: 2 } } });
+        traces.push({ x, y: y.map((v, j) => kinds[j] === "Beispiel" ? v : null), yaxis: ax, type: "scatter", mode: "markers", hoverinfo: "skip",
+          marker: { color: C.surface, size: 7, line: { color: col, width: 1.5 } } });
+      }
+    }
+  });
+  const shapes = [];
+  s.forEach(r => { if (isWinter(r.m)) shapes.push({ type: "rect", xref: "x", yref: "paper", x0: `${r.m}-01`, x1: `${r.m}-28`, y0: 0, y1: 1, fillcolor: C.winter, line: { width: 0 }, layer: "below" }); });
+  // grey bands where delays are not loaded (real-data mode)
+  s.forEach(r => { if (r.kind === "nicht geladen") shapes.push({ type: "rect", xref: "x", yref: "paper", x0: `${r.m}-01`, x1: `${r.m}-28`, y0: 0.5, y1: 1, fillcolor: "rgba(255,255,255,.06)", line: { width: 0 } }); });
+  layout.shapes = shapes;
+  if (s.some(r => r.kind === "nicht geladen")) layout.annotations = [{ xref: "paper", yref: "paper", x: 0.5, y: 0.87, showarrow: false, text: "Ist-Daten nicht geladen – keine Interpolation", font: { size: 11, color: C.muted } }];
+  Plotly.react("trends", traces, layout, SF.config("Daten_trends"));
+  document.getElementById("trendRegion").textContent = S.region === "CH" ? "· Schweiz" : `· ${DD.regions[S.region]}`;
+  document.getElementById("trendLegend").innerHTML = `<span class="inline-flex items-center gap-1"><span class="dot" style="background:${C.cat[0]}"></span>Monat mit echten Ist-Daten</span>`
+    + (S.mode === "preview" ? `<span class="inline-flex items-center gap-1"><span class="dot" style="border:1.5px solid ${C.cat[0]}"></span>Beispielwert (nicht geladen)</span>` : "")
+    + `<span class="inline-flex items-center gap-1"><span style="width:12px;height:10px;background:rgba(57,135,229,.3);display:inline-block"></span>Winter (11–04)</span>`;
+}
+
+/* ---------------- Calendar heatmap + anomaly table ---------------- */
+let ANOM = [];
+function renderCalendar() {
+  const [label, unit, mul] = METRICS[S.metric];
+  document.getElementById("calMetricLabel").textContent = label;
+  const all = anomalies(ALLDAYS, S.metric), days = all.filter(d => d.ym >= S.from && d.ym <= S.to);
+  ANOM = days.filter(d => d.flag === "hoch" || d.flag === "tief").sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  const t0 = Date.parse(days[0].date) - days[0].wd * 864e5, wk = d => Math.floor((Date.parse(d.date) - t0) / (7 * 864e5));
+  const nW = wk(days.at(-1)) + 1, Z = Array.from({ length: 7 }, () => new Array(nW).fill(null)), G = Array.from({ length: 7 }, () => new Array(nW).fill(null));
+  const T = Array.from({ length: 7 }, () => new Array(nW).fill(""));
+  days.forEach(d => {
+    const c = wk(d), r = d.wd;
+    if (d.flag === "nicht_geladen") { G[r][c] = 1; T[r][c] = `${SF.fmtDate(d.date)} · nicht geladen`; return; }
+    Z[r][c] = d[S.metric] * mul;
+    T[r][c] = `${WD[d.wd]} ${SF.fmtDate(d.date)} · ${(d[S.metric] * mul).toFixed(unit === "%" ? 1 : 2)} ${unit}` + (d.z != null ? ` · z ${d.z.toFixed(1)}` : " · nicht bewertbar") + (d.kind === "Beispiel" ? " · Beispiel" : "");
+  });
+  const monthTicks = [...new Set(days.map(d => d.ym))].map(m => ({ m, c: wk(days.find(d => d.ym === m)) }));
+  const ring = ANOM.map(d => ({ x: wk(d), y: d.wd }));
+  Plotly.react("calendar", [
+    { z: G, type: "heatmap", colorscale: [[0, C.empty], [1, C.empty]], showscale: false, xgap: 2, ygap: 2, hoverinfo: "skip" },
+    { z: Z, text: T, type: "heatmap", hovertemplate: "%{text}<extra></extra>", xgap: 2, ygap: 2,
+      colorscale: C.seq.map((c, i) => [i / (C.seq.length - 1), c]), colorbar: { title: { text: unit, side: "top", font: { size: 10 } }, thickness: 8, len: 0.9, outlinewidth: 0, tickfont: { size: 10, color: C.ink2 } } },
+    { x: ring.map(p => p.x), y: ring.map(p => p.y), type: "scatter", mode: "markers", hoverinfo: "skip",
+      marker: { symbol: "circle-open", size: 11, color: C.ink, line: { width: 2 } } },
+  ], SF.layout({ height: 230, margin: { l: 30, r: 10, t: 8, b: 26 },
+    xaxis: { showgrid: false, zeroline: false, tickvals: monthTicks.map(t => t.c), ticktext: monthTicks.map(t => t.m.slice(5) === "01" ? `Jan ${t.m.slice(0, 4)}` : ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"][+t.m.slice(5)]),
+      tickfont: { size: 10, color: C.ink2 }, range: [-0.5, nW - 0.5] },
+    yaxis: { showgrid: false, zeroline: false, tickvals: [0, 2, 4, 6], ticktext: ["Mo", "Mi", "Fr", "So"], autorange: "reversed", tickfont: { size: 10, color: C.ink2 } } }),
+    SF.config("Daten_kalender"));
+  // table
+  document.getElementById("anomCount").textContent = `${ANOM.length} Tage mit |z| ≥ 3 · Top 15`;
+  const fmt = v => (v * mul).toFixed(unit === "%" ? 1 : 2);
+  document.getElementById("anomTable").innerHTML = `<thead><tr><th>Datum</th><th class="r">Wert</th><th class="r">Basis</th><th class="r">z</th><th>Kontext</th></tr></thead><tbody>` +
+    (ANOM.slice(0, 15).map(d => `<tr class="anom-row" data-date="${d.date}"><td class="whitespace-nowrap">${WD[d.wd]} ${SF.fmtDate(d.date)}${d.kind === "Beispiel" ? ' <span class="text-xs text-ink2">(B)</span>' : ""}</td>
+      <td class="r whitespace-nowrap">${fmt(d[S.metric])} ${unit}</td><td class="r text-ink2">${fmt(d.base)}</td>
+      <td class="r whitespace-nowrap"><b>${d.z > 0 ? "▲" : "▼"} ${Math.abs(d.z).toFixed(1)}</b></td>
+      <td class="text-xs text-ink2 whitespace-nowrap">ΔHS Davos ${d.hn_dav ?? "–"} cm · Regen ${d.precip_mm ?? "–"} mm · ${d.n_stations.toLocaleString("de-CH")} Stat.</td></tr>`).join("")
+      || `<tr><td colspan="5" class="text-ink2">Keine auffälligen Tage im Zeitraum${S.mode === "real" ? " (nur geladene Monate bewertet)" : ""}.</td></tr>`) + "</tbody>";
+}
+function hitDay(date) {
+  document.querySelectorAll(".anom-row").forEach(r => r.classList.toggle("is-hit", r.dataset.date === date));
+  const row = document.querySelector(`.anom-row[data-date="${date}"]`);
+  if (row) row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  else { const d = ALLDAYS.find(x => x.date === date); if (d) SF.toast(`${SF.fmtDate(date)}: nicht unter den Top-Auffälligkeiten`); }
+}
+
+/* ---------------- US-28: seasonal pattern (source markets = treemap D4) ---------------- */
+function renderSeason() {
+  // fresh-snow days per region × month — real MeteoSwiss data for every month
+  const ms = MONTHS.filter(m => m >= S.from && m <= S.to);
+  const z = REGIONS.map(([code]) => ms.map(m => SNOW[`${code}|${m}`] ?? null));
+  const zmax = Math.max(1, ...z.flat().filter(v => v != null));
+  Plotly.react("season", [{ z, x: ms, y: REGIONS.map(([, n]) => SHORT(n)), type: "heatmap", xgap: 2, ygap: 2, zmin: 0, zmax,
+    colorscale: [[0, C.surface], ...C.seq.map((c, i) => [(i + 1) / C.seq.length, c])],
+    hovertemplate: "%{y} · %{x}<br>%{z:.1f} Neuschneetage (Ø Schneestation)<extra></extra>",
+    colorbar: { title: { text: "Tage", side: "top", font: { size: 10 } }, thickness: 8, len: 0.9, outlinewidth: 0, tickfont: { size: 10, color: C.ink2 } } }],
+    SF.layout({ height: 380, margin: { l: 96, r: 10, t: 6, b: 34 }, plot_bgcolor: C.empty,
+      shapes: ms.filter(isWinter).map(m => ({ type: "rect", xref: "x", yref: "paper", x0: ms.indexOf(m) - 0.5, x1: ms.indexOf(m) + 0.5, y0: 1, y1: 1.02, fillcolor: "rgba(57,135,229,.5)", line: { width: 0 } })),
+      xaxis: { showgrid: false, type: "category", tickangle: 0, tickvals: ms.filter((_, i) => i % 3 === 0), ticktext: ms.filter((_, i) => i % 3 === 0).map(m => `${m.slice(5)}/${m.slice(2, 4)}`), tickfont: { size: 10, color: C.ink2 } },
+      yaxis: { showgrid: false, autorange: "reversed", tickfont: { size: 11, color: C.ink2 } } }), SF.config("Daten_saisonmuster_neuschnee"));
+}
+
+/* ---------------- US-29: network map ---------------- */
+// nodes: [key, name, lat, lon, region, altitude, stops/day, rail-like]; months: {ym: [[idx, n, n_actual, late, canceled, days]]}
+// links: [from, to, sample trips/day, mode] — SAMPLE until the GTFS Fahrplan 2026 is loaded
+const NET = window.PROTO_NET, NET_MODES = ["Alle", "Bahn", "Bus", "Tram", "Zahnrad/Seilbahn", "Schiff"];
+const NET_MIN = { rail300: "Bahnhöfe + ab 300 Halten/Tag", 100: "ab 100 Halten/Tag", 40: "alle (ab 40 Halten/Tag)" };
+const NET_BAND = 0.02, NET_MIN_ACTUAL = 50, NET_DETAIL_ZOOM = 9.5;
+const NC = { better: "#3987e5", same: SF.C.ink2, worse: "#e66767", ring: SF.C.muted, link: "rgba(195,194,183,.32)" };
+let netDetail = false;
+function netStats() {
+  // sum the loaded months inside the period; in "Vorschau" fall back to all loaded months as a stand-in
+  let ms = Object.keys(NET.months).filter(m => m >= S.from && m <= S.to), stand_in = false;
+  if (!ms.length && S.mode === "preview") { ms = Object.keys(NET.months); stand_in = true; }
+  const st = new Map();
+  ms.forEach(m => NET.months[m].forEach(([i, n, na, late, canc, days]) => {
+    const o = st.get(i) || { n: 0, na: 0, late: 0, canc: 0, days: 0 };
+    o.n += n; o.na += na; o.late += late; o.canc += canc; o.days += days; st.set(i, o);
+  }));
+  let na = 0, late = 0; st.forEach(o => { na += o.na; late += o.late; });
+  return { st, ms, stand_in, ref: na ? late / na : null };
+}
+function renderNet() {
+  const { st, ms, stand_in, ref } = netStats(), preview = S.mode === "preview";
+  const inRegion = S.region !== "CH", detail = inRegion || netDetail;
+  const modeSel = preview ? (S.netMode || "Alle") : "Alle";
+  // stations served by the chosen mode (sample links only)
+  let served = null;
+  if (preview && modeSel !== "Alle") { served = new Set(); NET.links.forEach(l => { if (l[3] === modeSel) { served.add(l[0]); served.add(l[1]); } }); }
+  const minSel = S.netMin || "rail300";
+  const keep = (r, i) => (!inRegion || r[4] === S.region) && (!served || served.has(i))
+    && (detail || (minSel === "rail300" ? (r[7] === 1 || r[6] >= 300) : r[6] >= +minSel));
+  const vis = new Set(); NET.nodes.forEach((r, i) => { if (keep(r, i)) vis.add(i); });
+
+  const traces = [];
+  if (preview) {
+    // three width classes (one trace each: scattermap has one line width per trace)
+    [[0, 30, 0.8], [30, 100, 1.6], [100, Infinity, 2.6]].forEach(([lo, hi, w]) => {
+      const lat = [], lon = [];
+      NET.links.forEach(([a, b, t, m]) => {
+        if (t < lo || t >= hi || !vis.has(a) || !vis.has(b) || (modeSel !== "Alle" && m !== modeSel)) return;
+        lat.push(NET.nodes[a][2], NET.nodes[b][2], null); lon.push(NET.nodes[a][3], NET.nodes[b][3], null);
+      });
+      traces.push({ type: "scattermap", mode: "lines", lat, lon, line: { color: NC.link, width: w }, hoverinfo: "skip" });
+    });
+  }
+  const groups = { better: [], same: [], worse: [], none: [] };
+  vis.forEach(i => {
+    const r = NET.nodes[i], o = st.get(i);
+    let cls = "none";
+    if (o && o.na >= NET_MIN_ACTUAL && ref != null) { const ls = o.late / o.na; cls = ls <= ref - NET_BAND ? "better" : ls >= ref + NET_BAND ? "worse" : "same"; }
+    groups[cls].push(i);
+  });
+  const size = i => Math.max(4, Math.min(16, 3 + Math.sqrt(NET.nodes[i][6]) / 4.5));
+  const text = i => {
+    const [, name, , , reg, alt, spd] = NET.nodes[i], o = st.get(i);
+    const val = !o ? "Ist-Daten nicht geladen" : o.na < NET_MIN_ACTUAL ? `nicht bewertbar (${o.na} Halte mit Ist-Zeit)`
+      : `Pünktlichkeit ${SF.fmtPct(1 - o.late / o.na, 1)} · Ausfallquote ${SF.fmtPct(o.canc / o.n, 2)} · ${o.days} Tage`;
+    return `<b>${name}</b><br>${DD.regions[reg] ?? "ohne Tourismusregion"} · ${alt ?? "–"} m ü. M.<br>${spd.toLocaleString("de-CH")} Halte/Tag<br>${val}`;
+  };
+  const pts = (ids, color, sz = size) => ({ type: "scattermap", mode: "markers", lat: ids.map(i => NET.nodes[i][2]), lon: ids.map(i => NET.nodes[i][3]),
+    customdata: ids, text: ids.map(text), hovertemplate: "%{text}<extra></extra>", marker: { color, size: ids.map(sz), opacity: 0.95 } });
+  // hollow ring = no rating: grey disc with a surface-coloured disc on top (scattermap has no open symbols)
+  traces.push(pts(groups.none, NC.ring), { ...pts(groups.none, C.surface, i => Math.max(2, size(i) - 3)), hoverinfo: "skip", hovertemplate: null });
+  traces.push(pts(groups.same, NC.same), pts(groups.better, NC.better), pts(groups.worse, NC.worse));
+
+  // camera: Switzerland, or the bounding box of the selected region
+  // MapLibre: the world is 512·2^zoom px wide; 1° latitude ≈ 1.46° longitude in Mercator at 47° N
+  let box = [45.82, 47.81, 5.96, 10.49];
+  if (inRegion && vis.size) {
+    const la = [...vis].map(i => NET.nodes[i][2]), lo = [...vis].map(i => NET.nodes[i][3]);
+    box = [Math.min(...la), Math.max(...la), Math.min(...lo), Math.max(...lo)];
+  }
+  const el = document.getElementById("netmap").getBoundingClientRect(), W = el.width || 1200, H = el.height || 520;
+  const center = { lat: (box[0] + box[1]) / 2, lon: (box[2] + box[3]) / 2 };
+  const zoom = Math.min(11, Math.log2(360 * W / (512 * Math.max(box[3] - box[2], 0.05))),
+    Math.log2(360 * H / (512 * 1.46 * Math.max(box[1] - box[0], 0.03)))) - 0.25;
+  Plotly.react("netmap", traces, SF.layout({ margin: { l: 0, r: 0, t: 0, b: 0 }, uirevision: `${S.region}|${S.mode}`,
+    map: { style: "carto-darkmatter", center, zoom } }), { ...SF.config("Daten_netzkarte"), scrollZoom: true });
+
+  const total = NET.nodes.filter(r => !inRegion || r[4] === S.region).length;
+  document.getElementById("netInfo").textContent = `· ${vis.size.toLocaleString("de-CH")} von ${total.toLocaleString("de-CH")} Stationen`
+    + (inRegion ? ` · ${DD.regions[S.region]}` : detail ? " · Detailansicht" : " · hineinzoomen für alle");
+  document.getElementById("netLegend").innerHTML = ref == null ? "" :
+    [[NC.better, `pünktlicher als CH-Schnitt (≥ ${NET_BAND * 100} pp)`], [NC.same, `ähnlich (± ${NET_BAND * 100} pp)`], [NC.worse, `unpünktlicher (≥ ${NET_BAND * 100} pp)`]]
+      .map(([c, l]) => `<span class="inline-flex items-center gap-1"><span class="dot" style="background:${c}"></span>${l}</span>`).join("")
+    + `<span class="inline-flex items-center gap-1"><span class="dot" style="border:2px solid ${NC.ring}"></span>nicht geladen / < ${NET_MIN_ACTUAL} Halte</span>`
+    + (preview ? `<span class="inline-flex items-center gap-1"><span style="width:16px;height:2px;background:${NC.link};display:inline-block"></span>Verbindung (Beispiel), Breite = Fahrten/Tag</span>` : "")
+    + `<span>CH-Schnitt: ${SF.fmtPct(1 - ref, 1)} pünktlich</span>`;
+  const loaded = `${ms.length} von ${MONTHS.filter(m => m >= S.from && m <= S.to).length} Monaten im Zeitraum`;
+  document.getElementById("netNote").innerHTML = preview
+    ? `<b>Vorschau:</b> Verbindungen und Verkehrsmittel sind ein <b>Beispielnetz</b> (nächste Nachbarn, Verkehrsmittel geschätzt), bis der GTFS-Fahrplan 2026 geladen ist. Stationen und Pünktlichkeit: echte Ist-Daten${stand_in ? " – Zeitraum ohne geladene Monate, ersatzweise 01/2025 + 09/2026" : ` (${loaded})`}.`
+    : ref == null ? `Keine Ist-Daten im Zeitraum geladen → alle Stationen ohne Bewertung (keine Interpolation). Verbindungen erscheinen, sobald der GTFS-Fahrplan 2026 geladen ist.`
+    : `Stationen: echte Ist-Daten (${loaded}). Verbindungen und Verkehrsmittel kommen aus dem GTFS-Fahrplan 2026 – noch nicht geladen, darum nur Stationen.`;
+  const fm = document.getElementById("fNetMode");
+  fm.disabled = !preview; fm.title = preview ? "" : "Verkehrsmittel kommt aus dem GTFS-Fahrplan (noch nicht geladen)";
+}
+
+/* ---------------- filters ---------------- */
+function fillFilters() {
+  const opt = (v, l, sel) => `<option value="${v}" ${v === sel ? "selected" : ""}>${l}</option>`;
+  document.getElementById("fFrom").innerHTML = MONTHS.map(m => opt(m, `${m.slice(5)}/${m.slice(0, 4)}`, S.from)).join("");
+  document.getElementById("fTo").innerHTML = MONTHS.map(m => opt(m, `${m.slice(5)}/${m.slice(0, 4)}`, S.to)).join("");
+  document.getElementById("fRegion").innerHTML = opt("CH", "Schweiz", S.region) + REGIONS.map(([c, n]) => opt(c, n, S.region)).join("");
+  document.getElementById("fMetric").innerHTML = Object.entries(METRICS).map(([k, [l]]) => opt(k, l, S.metric)).join("");
+  document.getElementById("fNetMode").innerHTML = NET_MODES.map(m => opt(m, m, S.mode === "preview" ? (S.netMode || "Alle") : "Alle")).join("");
+  document.getElementById("fNetMin").innerHTML = Object.entries(NET_MIN).map(([k, l]) => opt(k, l, S.netMin || "rail300")).join("");
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
+}
+function render() {
+  writeUrl(); fillFilters();
+  document.getElementById("banner").innerHTML = S.mode === "preview"
+    ? '<div class="tag-sample">Vorschau · Verspätungen für nicht geladene Monate sind Beispieldaten (○). Echt: Ist-Daten 01/2025 + 09/2026, HESTA, MeteoSchweiz. «Nur echte» zeigt den heutigen Stand.</div>'
+    : "";  // «Nur echte»: no banner (removed 23/10/2026); the gap shows in the KPI «Datenabdeckung Ist-Daten»
+  const ser = monthly(S.region);
+  renderKpis(ser); renderNet(); renderTrends(ser); renderCalendar(); renderSeason();
+}
+document.getElementById("filters").addEventListener("change", e => {
+  if (e.target.id === "fFrom") S.from = e.target.value; if (e.target.id === "fTo") S.to = e.target.value; if (e.target.id === "fRegion") S.region = e.target.value;
+  if (S.from > S.to) [S.from, S.to] = [S.to, S.from];
+  render();
+});
+document.getElementById("fMetric").addEventListener("change", e => { S.metric = e.target.value; render(); });
+document.getElementById("fNetMode").addEventListener("change", e => { S.netMode = e.target.value; renderNet(); });
+document.getElementById("fNetMin").addEventListener("change", e => { S.netMin = e.target.value; renderNet(); });
+document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { S.mode = b.dataset.mode; render(); }));
+
+SFSnow(document.getElementById("hdrSnow"));
+window.NAV_STATUS = { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" };
+document.getElementById("nav").innerHTML = SF.nav("Daten");
+const start = () => {
+  render();
+  document.getElementById("calendar").on("plotly_click", ev => {
+    const p = ev.points[0], wkIdx = p.x, wd = p.y, first = ALLDAYS.find(d => d.ym >= S.from);
+    const t0 = Date.parse(first.date) - first.wd * 864e5, date = new Date(t0 + (wkIdx * 7 + wd) * 864e5).toISOString().slice(0, 10);
+    hitDay(date);
+  });
+  document.getElementById("season").on("plotly_click", ev => {
+    const name = ev.points[0].y, hit = REGIONS.find(([, n]) => SHORT(n) === name);
+    if (hit) { S.region = hit[0]; render(); document.getElementById("kpis").scrollIntoView({ behavior: "smooth" }); SF.toast(`Region: ${hit[1]}`); }
+  });
+  const net = document.getElementById("netmap");
+  net.on("plotly_click", ev => {
+    const i = ev.points[0].customdata; if (i == null) return;
+    const [, name, , , reg] = NET.nodes[i];
+    if (!reg || reg === S.region) return;
+    S.region = reg; render(); SF.toast(`${name} → Region: ${DD.regions[reg]}`);
+  });
+  net.on("plotly_relayout", ev => {
+    const z = ev["map.zoom"]; if (z == null) return;
+    const d = z >= NET_DETAIL_ZOOM; if (d !== netDetail) { netDetail = d; renderNet(); }
+  });
+  new ResizeObserver(() => document.querySelectorAll(".js-plotly-plot").forEach(el => Plotly.Plots.resize(el))).observe(document.querySelector("main"));
+};
+if (document.readyState === "complete") requestAnimationFrame(start); else window.addEventListener("load", () => requestAnimationFrame(start));
+VIS.mount(VIS_DATEN);
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+credentials.json
+deploy/Caddyfile.local
+
+# --- Data & generated artefacts ---
+data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+opensky_daten/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Tooling caches & reports ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+
+# --- Third-party clones (own git repo) ---
+.claude/skills/anthropics/
+.claude/settings.local.json
+
+# --- Office lock files (created while a document is open) ---
+~$*

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H2 Saison – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/hpage.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>@media (min-width: 1024px) { #rules > summary { display: none; } }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const P = window.PROTO, C = SF.C, H2 = P.h2, TOTAL = "Herkunftsland - Total";
+const COUNTRIES = [["China", "CN"], ["Deutschland", "DE"], ["Vereinigtes Königreich", "GB"]];
+const REGIONS = Object.keys(H2.names).sort((a, b) => +a - +b);
+const SHORT = c => H2.names[c].replace(" / Vierwaldstättersee", "").replace(" Region", "").replace(" und Solothurn", "/SO").replace(" & Drei-Seen-Land", "/3-Seen");
+// H2 cells: [season, country, region]; conditions are per country with "oder" between the two regions (changed 15.10.2026)
+const COND = [["S", "China", "4"], ["S", "China", "6"], ["W", "Deutschland", "1"], ["W", "Deutschland", "11"], ["W", "Vereinigtes Königreich", "1"], ["W", "Vereinigtes Königreich", "11"]];
+const GROUPS = [["S", "China", ["4", "6"]], ["W", "Deutschland", ["1", "11"]], ["W", "Vereinigtes Königreich", ["1", "11"]]];
+const SEASONS = { S: "Sommer 2025", W: "Winter 2025/26" };
+
+const DESC = [
+  { name: "season_scheme", label: "Saisonmodell", group: "Regel", type: "enum", radio: true, def: "bfs",
+    options: [["bfs", "BFS-Tourismussaison: Winter 11–04, Sommer 05–10"], ["meteo", "Meteorologisch: Winter 12–02, Sommer 06–08"]], sweep: ["bfs", "meteo"], chip: { bfs: "BFS", meteo: "meteorologisch" } },
+  { name: "lq_threshold", label: "«Bevorzugt», wenn Standortquotient >", group: "Entscheidung", type: "number", def: 1, min: 0.5, max: 2, step: 0.05, sweep: [0.8, 0.9, 1, 1.2, 1.5] },
+];
+
+function seasonOf(ym, scheme) {
+  const y = +ym.slice(0, 4), m = +ym.slice(5);
+  if (scheme === "bfs") return m >= 11 ? `W${y}` : m <= 4 ? `W${y - 1}` : `S${y}`;
+  return m === 12 ? `W${y}` : m <= 2 ? `W${y - 1}` : m >= 6 && m <= 8 ? `S${y}` : null;
+}
+/* ---- location quotients from real monthly HESTA nights (engine: services/hypotheses/h2_seasons.py) ---- */
+function compute(p) {
+  const want = { S: "S2025", W: "W2025" }, N = {};
+  for (const [ym, a, c, v] of H2.monthly_all) {
+    const s = seasonOf(ym, p.season_scheme); if (!s) continue;
+    const k = s === want.S ? "S" : s === want.W ? "W" : null; if (!k) continue;
+    N[k] ??= {}; N[k][c] ??= {}; N[k][c][a] = (N[k][c][a] || 0) + v;
+  }
+  const sum = o => Object.values(o).reduce((s, x) => s + x, 0);
+  const lq = {};
+  for (const k of ["S", "W"]) for (const [c] of [...COUNTRIES, [TOTAL]]) for (const a of REGIONS) {
+    const share = (N[k][c][a] || 0) / sum(N[k][c]), base = (N[k][TOTAL][a] || 0) / sum(N[k][TOTAL]);
+    lq[`${k}|${c}|${a}`] = { share, lq: share / base, nights: N[k][c][a] || 0 };
+  }
+  const conds = GROUPS.map(([k, c, regs]) => {
+    const vals = regs.map(a => [a, lq[`${k}|${c}|${a}`].lq]);
+    return { label: `${SEASONS[k]}: ${c} – LQ ${regs.map(SHORT).join(" oder ")} > ${p.lq_threshold.toFixed(2)}`,
+      passed: vals.some(([, v]) => v > p.lq_threshold),
+      value: vals.map(([a, v]) => `${SHORT(a)} ${v.toFixed(2)} ${v > p.lq_threshold ? "✓" : "✕"}`).join(" · ") };
+  });
+  const ok = conds.filter(c => c.passed).length;
+  return { p, lq, conds, verdict: ok === conds.length ? "gestuetzt" : "nicht_gestuetzt", metricText: `${ok} / ${conds.length} Bedingungen erfüllt (Standortquotient > ${p.lq_threshold.toFixed(2)})` };
+}
+
+function render(r) {
+  const base = SF.layout(), mobile = window.innerWidth < 640;
+  // heatmap: regions × (season, country); colour = log2(LQ), one blue ramp light (low) → dark (high)
+  const cols = ["S", "W"].flatMap(k => COUNTRIES.map(([c, s]) => [k, c, `${k === "S" ? "Sommer" : "Winter"}<br>${s}`]));
+  const z = REGIONS.map(a => cols.map(([k, c]) => Math.log2(r.lq[`${k}|${c}|${a}`].lq)));
+  const text = REGIONS.map(a => cols.map(([k, c]) => COND.some(x => x[0] === k && x[1] === c && x[2] === a) ? r.lq[`${k}|${c}|${a}`].lq.toFixed(2) : ""));
+  const hover = REGIONS.map(a => cols.map(([k, c]) => { const v = r.lq[`${k}|${c}|${a}`]; return `${SHORT(a)} · ${SEASONS[k]} · ${c}<br>LQ ${v.lq.toFixed(2)} · Anteil ${(v.share * 100).toFixed(1)} %<br>${Math.round(v.nights).toLocaleString("de-CH")} Logiernächte`; }));
+  const RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+  const shapes = COND.map(([k, c, a]) => { const x = cols.findIndex(q => q[0] === k && q[1] === c), y = REGIONS.indexOf(a);
+    return { type: "rect", x0: x - 0.5, x1: x + 0.5, y0: y - 0.5, y1: y + 0.5, line: { color: C.accent, width: 2.5 } }; });
+  // labels only on the six named cells; dark text on light cells, light text on dark cells
+  const labels = COND.map(([k, c, a]) => { const x = cols.findIndex(q => q[0] === k && q[1] === c), y = REGIONS.indexOf(a), v = r.lq[`${k}|${c}|${a}`].lq;
+    const pos = (Math.min(1.5, Math.max(-1.5, Math.log2(v))) + 1.5) / 3;
+    return { x: cols[x][2], y: SHORT(a), text: `<b>${v.toFixed(2)}</b>`, showarrow: false, font: { size: 11, color: pos > 0.5 ? C.ink : "#0b0b0b" } }; });
+  Plotly.react("heat", [{ z, x: cols.map(c => c[2]), y: REGIONS.map(SHORT), type: "heatmap",
+    customdata: hover, hovertemplate: "%{customdata}<extra></extra>", zmin: -1.5, zmax: 1.5, xgap: 2, ygap: 2,
+    colorscale: RAMP.map((c, i) => [i / (RAMP.length - 1), c]),
+    colorbar: { title: { text: "LQ", side: "top", font: { size: 11 } }, tickvals: [-1.5, -1, 0, 1, 1.5], ticktext: ["≤ 0.35", "0.5", "1", "2", "≥ 2.8"], thickness: 10, len: 0.8, outlinewidth: 0 } }],
+    SF.layout({ height: mobile ? 460 : 470, margin: { l: 100, r: 10, t: 40, b: 10 }, shapes, annotations: labels,
+      xaxis: { ...base.xaxis, side: "top", showgrid: false, tickfont: { size: 11, color: C.ink2 } }, yaxis: { ...base.yaxis, autorange: "reversed", showgrid: false } }), SF.config("H2_lq"));
+  // monthly small multiples: 4 regions × 3 countries, winter shaded, one shared y scale
+  const yms = [...new Set(H2.monthly_all.map(x => x[0]))].sort();
+  // contiguous winter runs → one shaded band each (category axis: index ± 0.5)
+  const winterRects = [];
+  yms.forEach((ym, i) => { const w = seasonOf(ym, r.p.season_scheme)?.startsWith("W");
+    if (!w) return; const last = winterRects.at(-1);
+    if (last && last.x1 === i - 0.5) last.x1 = i + 0.5;
+    else winterRects.push({ type: "rect", xref: "x", yref: "paper", x0: i - 0.5, x1: i + 0.5, y0: 0, y1: 1, fillcolor: C.winter, line: { width: 0 }, layer: "below" }); });
+  const ymax = Math.max(...H2.monthly_all.filter(x => ["4", "6", "1", "11"].includes(x[1]) && x[2] !== TOTAL).map(x => x[3] / 1000)) * 1.05;
+  ["4", "6", "1", "11"].forEach(a => {
+    const tr = COUNTRIES.map(([c, s], i) => { const rows = H2.monthly_all.filter(x => x[1] === a && x[2] === c);
+      return { x: rows.map(x => x[0]), y: rows.map(x => x[3] / 1000), type: "scatter", mode: "lines", name: s, line: { color: C.cat[i], width: 2 }, hovertemplate: `${s} %{x}: %{y:.1f} Tsd.<extra></extra>` }; });
+    Plotly.react(`sm-${a}`, tr, SF.layout({ height: 190, margin: { l: 40, r: 8, t: 6, b: 28 }, shapes: winterRects, hovermode: "x unified",
+      xaxis: { ...base.xaxis, type: "category", tickvals: ["2025-01", "2025-07", "2026-01", "2026-07"], ticktext: ["01/25", "07/25", "01/26", "07/26"], showgrid: false },
+      yaxis: { ...base.yaxis, title: { text: "Tsd.", standoff: 2 }, range: [0, ymax] } }), SF.config(`H2_monthly_${a}`));
+  });
+  document.getElementById("smLegend").innerHTML = COUNTRIES.map(([c, s], i) => `<span class="inline-flex items-center gap-1"><span style="width:14px;border-top:2px solid ${C.cat[i]};display:inline-block"></span>${c}</span>`).join("")
+    + `<span class="inline-flex items-center gap-1"><span style="width:12px;height:10px;background:rgba(57,135,229,.3);display:inline-block"></span>Winter (${r.p.season_scheme === "bfs" ? "11–04" : "12–02"})</span>`;
+}
+
+const VIS_H2 = [  // chosen techniques (UI-SPEC §2.9)
+  { id: "S1", tech: "3.2", prio: "S", title: "LQ-Kachelkarten: 3 Länder × 2 Saisons", rail: "LQ-Kachelkarten",
+    note: "H2 ist eine geografische Aussage: dieselben Standortquotienten wie in der Heatmap, als Kachelkarte (Kachel ≈ Lage der Region). Die in H2 genannten Regionen sind gelb umrandet und beschriftet – China im Sommer bei LU/BE, Deutschland und Grossbritannien im Winter bei GR/VS. Dunkler = stärker vertreten.",
+    source: "Quelle: BFS HESTA (px-x-1003020000_103) · Saisons nach Standardregel · Ergänzt die LQ-Heatmap, ersetzt sie nicht", draw: (el) => VIS.drawS1(el) },
+  { id: "S2", tech: "3.5", prio: "C", title: "Gästeflüsse: Herkunftsland → Region je Monat", rail: "Gästeflüsse",
+    note: "Pro Monat ein Streifen: links das Herkunftsland, rechts die Region. Dicke und Deckkraft = Anteil der Gäste des Landes, die in diesem Monat in die Region reisen (unter 3 % ausgeblendet). «Interleaved» schiebt die Monatsstreifen übereinander (Parallel Edge Splatting). Wintermonate hinterlegt. Explorativ.",
+    seg: { key: "layout", def: "side", label: "Anordnung", opts: [["side", "Nebeneinander"], ["inter", "Interleaved"]] },
+    source: "Quelle: BFS HESTA, Logiernächte je Monat 01/2025–07/2026", draw: (el, st) => VIS.drawS2(el, st) },
+];
+
+HPage.init({
+  code: "H2", topic: "Saisonale Verteilung der Quellmärkte", prev: "01-h1.html", prevLabel: "H1", next: "03-h3.html", nextLabel: "H3",
+  statement: "Gäste aus China bevorzugen im Sommer die Regionen Luzern/Vierwaldstättersee oder Bern, Gäste aus Deutschland und Grossbritannien im Winter Graubünden oder Wallis.",
+  question: "Wohin reisen Gäste aus China im Sommer – und Gäste aus Deutschland und Grossbritannien im Winter?",
+  banner: "Echte BFS-HESTA-Daten · Standortquotienten im Browser nachgerechnet (Prototyp)",
+  resultTag: "vorläufig",
+  navStatus: { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" },
+  DESC, compute, render, csvTable: "shares",
+  afterInit: () => VIS.mount(VIS_H2),
+  evidenceHtml: `
+    <section class="viz-card p-4 min-w-0" data-rail="LQ-Heatmap">
+      <h2 class="font-semibold">Standortquotient (LQ) je Region, Land und Saison</h2>
+      <p class="text-xs text-ink2 mb-2">LQ = Anteil der Region an den Logiernächten des Landes ÷ Anteil der Region an allen Logiernächten. Je dunkler, desto stärker vertreten (1 = Durchschnitt). Gelb umrandet = in H2 genannt (je Land genügt eine der zwei Regionen).</p>
+      <div id="heat" class="chart"></div>
+      <div class="source">Quelle: BFS HESTA (px-x-1003020000_103), Logiernächte nach Tourismusregion und Herkunftsland</div>
+    </section>
+    <section class="viz-card p-4 min-w-0" data-rail="Monatsverlauf">
+      <h2 class="font-semibold">Logiernächte pro Monat in den vier genannten Regionen</h2>
+      <div id="smLegend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 my-2"></div>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div><div class="text-sm font-semibold">Luzern / Vierwaldstättersee</div><div id="sm-4" class="chart"></div></div>
+        <div><div class="text-sm font-semibold">Bern Region</div><div id="sm-6" class="chart"></div></div>
+        <div><div class="text-sm font-semibold">Graubünden</div><div id="sm-1" class="chart"></div></div>
+        <div><div class="text-sm font-semibold">Wallis</div><div id="sm-11" class="chart"></div></div>
+      </div>
+      <div class="source">Quelle: BFS HESTA · gemeinsame y-Achse für alle vier Regionen (Tausend Logiernächte)</div>
+    </section>` + VIS.sections(VIS_H2),
+  defs: r => [r.p.season_scheme === "bfs" ? "Saison nach BFS-Tourismusjahr: Winter = November–April, Sommer = Mai–Oktober" : "Saison meteorologisch: Winter = Dezember–Februar, Sommer = Juni–August (Variante)",
+    "Verglichen werden die vollständigen Saisons Sommer 2025 und Winter 2025/26",
+    "LQ = (Logiernächte Land in Region ÷ Logiernächte Land in CH) ÷ (alle Logiernächte Region ÷ alle Logiernächte CH)",
+    "Je Land genügt eine der beiden genannten Regionen («oder»); gestützt, wenn alle drei Länder-Bedingungen erfüllt sind",
+    `«Bevorzugt» = LQ > ${r.p.lq_threshold.toFixed(2)}`],
+  basis: () => ["Regionen: 13 Tourismusregionen", "Monate: 01/2025–07/2026 (HESTA veröffentlicht)", "Ausgeschlossen: unterdrückte/geschätzte Monate", "Datenversion: proto-2026-10-15"],
+  seedVariants: [{ id: 2, name: "Meteorologische Saisons", author: "Lukas", date: "15.10.", pinned: false, params: { season_scheme: "meteo" } }],
+});
+</script>
+</body>
+</html>

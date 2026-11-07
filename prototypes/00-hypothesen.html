@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hypothesen – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <script src="shared/rail.js" defer></script>
+</head>
+<body>
+<div id="nav"></div>
+
+<main class="max-w-screen-xl mx-auto px-4 pb-16">
+  <!-- Header: title, status, report -->
+  <header class="has-snow pt-10 pb-10 lg:pt-16 lg:pb-14" data-rail="Übersicht">
+    <canvas class="snow" id="hdrSnow" aria-hidden="true"></canvas>
+    <div class="tag-sample mb-5">Prototyp · H1/H2 vorläufig aus echten HESTA-Daten · Variantenzahlen = Beispiel</div>
+    <div class="flex flex-col md:flex-row md:items-end gap-3 md:gap-6 mb-6">
+      <div class="min-w-0">
+        <h1 class="display text-4xl lg:text-5xl">Hypothesen</h1>
+        <p class="text-ink2 mt-2 max-w-2xl">Wetter, Tourismus und ÖV-Verspätungen in der Schweiz – fünf Hypothesen, beurteilt mit den Standard-Regeln. Scrolle durch die fünf Antworten.</p>
+      </div>
+      <a class="btn md:ml-auto shrink-0" href="#" onclick="SF.toast('Bericht «Hypothesen_2026-10-15.md» heruntergeladen');return false">
+        <span aria-hidden="true">↓</span> Bericht exportieren (.md)</a>
+    </div>
+    <section class="card p-4 grid gap-4 md:grid-cols-[auto_1fr] md:items-center" aria-label="Status">
+      <div class="flex flex-wrap gap-3" id="summary"></div>
+      <div class="text-sm md:border-l md:pl-4" style="border-color:var(--grid)">
+        <div class="font-semibold">Datenstand</div>
+        <div class="text-ink2">HESTA bis 07/2026 · MeteoSchweiz bis 30.09.2026 ·
+          <span style="color:var(--v-rejected-text)">Ist-Daten nur 01/2025 und 09/2026 geladen</span> → H3–H5 noch nicht prüfbar.
+          <a href="#quality" class="underline">Datenqualität</a></div>
+      </div>
+    </section>
+    <div id="visO1" class="mt-4"></div>
+  </header>
+
+  <!-- One chapter per hypothesis: brief information left, chart right (traveling-tastes layout) -->
+  <div id="chapters" aria-label="Hypothesen"></div>
+</main>
+
+<script>
+/* chosen technique O1 (UI-SPEC §2.9): data status strip, source × month, under the status card */
+const VIS_O1 = [{ id: "O1", tech: "3.3 + 3.4", prio: "C", title: "Datenstand je Quelle und Monat", rail: "Datenstand",
+  note: "Ein schmaler Streifen je Quelle: hell = geladen, blau = teilweise, rot = fehlt, grau = noch nicht publiziert. Erklärt auf einen Blick, warum H3–H5 noch «unzureichende Daten» sind.",
+  source: 'Quellen: Ladeprotokoll Ist-Daten (_loaded.json) · MeteoSchweiz · BFS HESTA (veröffentlicht bis 07/2026) · Details: <a href="#quality">Datenqualität</a>', draw: (el) => VIS.drawO1(el) }];
+document.getElementById("visO1").outerHTML = `<div class="mt-4">${VIS.sections(VIS_O1)}</div>`;
+const P = window.PROTO, D = SF.D;
+const h1named = P.h1.scores.filter(s => s.group !== "other");
+const h1ok = h1named.filter(s => (s.group === "swiss") === (s.pc1 > 0)).length;
+const h1wrong = h1named.filter(s => (s.group === "swiss") !== (s.pc1 > 0)).map(s => s.name.split(" ")[0]);
+const h2ok = P.h2.conditions.filter(c => c.passed).length;
+const loaded = P.coverage.filter(c => c.loaded).length;
+
+const H = [
+  { code: "H1", topic: "Dimensionsreduktion", href: "01-h1.html", verdict: P.h1.verdict, chart: "PC1 × PC2 der 13 Tourismusregionen",
+    statement: "Werden die Tourismusregionen anhand ihres Gästemixes (Quellmärkte) angeordnet, trennt die erste Achse Regionen, die von Schweizer Gästen dominiert werden (Graubünden, Wallis, Ostschweiz), von international geprägten Regionen (Luzern-Vierwaldstättersee, Genf, Region Zürich).",
+    metric: `<b class="num">${h1ok} / ${h1named.length}</b> genannte Regionen auf der erwarteten PC1-Seite · abweichend: ${h1wrong.join(", ")}`,
+    variants: "2 Varianten geprüft · 1 gestützt" },
+  { code: "H2", topic: "Saisonale Verteilung", href: "02-h2.html", verdict: P.h2.verdict, chart: "Standortquotient je Land und Region (Linie = 1; je Paar genügt eine)",
+    statement: "Gäste aus China bevorzugen im Sommer die Regionen Luzern/Vierwaldstättersee oder Bern, Gäste aus Deutschland und Grossbritannien im Winter Graubünden oder Wallis.",
+    metric: `<b class="num">${h2ok} / ${P.h2.conditions.length}</b> Bedingungen erfüllt (Standortquotient &gt; 1)`,
+    variants: "Noch keine Varianten" },
+  { code: "H3", topic: "Wetter / Anomalie", href: "03-h3.html", verdict: "unzureichende_daten", chart: "Neuschnee Davos (ΔHS, cm), Winter 2025/26 · Verspätungen fehlen noch",
+    statement: "Die Mehrheit der Tage, die im Winter 2025/26 für Graubünden als ungewöhnlich verspätungsintensiv eingestuft wurden, wies in Davos Neuschnee auf.",
+    missing: ["Ist-Daten 11/2025–04/2026"], variants: "3 Varianten geprüft (Beispieldaten)" },
+  { code: "H4", topic: "Neuschnee & Verkehrsstörungen", href: "04-h4.html", verdict: "unzureichende_daten", chart: "Ist-Daten geladen je Monat",
+    statement: "An Tagen mit Neuschnee steigen Verspätungen und Ausfälle auf Bergstrecken, die Logiernächte des Monats sinken dadurch aber nicht.",
+    missing: ["Ist-Daten 02/2025–08/2026"], variants: "Noch keine Varianten" },
+  { code: "H5", topic: "Tourismusintensität & Verspätung", href: "05-h5.html", verdict: "unzureichende_daten", chart: 'Logiernächte/Monat, Index Ø = 100: <span style="color:#3987e5">━ GR</span> <span style="color:#d95926">━ Zürich</span> <span style="color:#199e70">━ Bern</span> · Verspätungen fehlen noch',
+    statement: "Monate mit mehr Logiernächten in einer Region haben dort höhere mittlere Verspätungen, in Graubünden stärker als in Städten.",
+    missing: ["Ist-Daten 02/2025–08/2026"], variants: "Noch keine Varianten" },
+];
+SFSnow(document.getElementById("hdrSnow"));
+window.NAV_STATUS = Object.fromEntries(H.map(h => [h.code, h.verdict]));
+document.getElementById("nav").innerHTML = SF.nav("Hypothesen");
+
+const count = v => H.filter(h => h.verdict === v).length;
+document.getElementById("summary").innerHTML = ["gestuetzt", "nicht_gestuetzt", "unzureichende_daten"]
+  .map(v => `<span class="inline-flex items-center gap-2"><b class="num text-lg">${count(v)}</b>${SF.badge(v, "sm")}</span>`).join("");
+
+const Q = { H1: "Trennt der Gästemix die Schweizer Ferienregionen von den internationalen?",
+  H2: "Wohin reisen Gäste aus China im Sommer – und Gäste aus Deutschland und Grossbritannien im Winter?",
+  H3: "Hatten die stärksten Verspätungstage in Graubünden im Winter 2025/26 Neuschnee in Davos?",
+  H4: "Bremst Neuschnee die Bergstrecken – ohne dass weniger Gäste übernachten?",
+  H5: "Sind Züge in Monaten mit mehr Touristen unpünktlicher – in Graubünden mehr als in den Städten?" };
+document.getElementById("chapters").innerHTML = H.map((h, i) => `
+  <section class="chapter" id="ch-${h.code}" data-rail="${h.code}" aria-labelledby="t-${h.code}">
+    <div class="chapter-text">
+      <div class="flex items-end gap-3">
+        <span class="display chapter-code" aria-hidden="true">${h.code}</span>
+        <span class="eyebrow mb-3" style="text-align:left">${i + 1} / ${H.length} · ${h.topic}</span>
+      </div>
+      <h2 id="t-${h.code}" class="chapter-q">${Q[h.code]}</h2>
+      <div class="mt-4">${SF.badge(h.verdict)}</div>
+      ${h.missing
+        ? `<p class="mt-3 text-sm">Noch keine Antwort möglich. Fehlt: <b>${h.missing.join(", ")}</b> · <a href="#quality" class="underline">Datenqualität ↗</a></p>`
+        : `<p class="mt-3 chapter-metric">${h.metric}</p>`}
+      <details class="mt-4 text-sm text-ink2">
+        <summary class="font-semibold" style="color:var(--ink)">Hypothese im Wortlaut</summary>
+        <p class="italic mt-1">«${h.statement}»</p>
+      </details>
+      <div class="mt-6 flex flex-wrap items-center gap-3">
+        <a class="btn btn-primary" href="${h.href}">${h.code} ansehen →</a>
+        <span class="text-xs text-ink2">${h.variants}</span>
+      </div>
+    </div>
+    <figure class="viz-card p-4 chapter-viz" aria-label="${h.chart.replace(/<[^>]+>/g, "")}">
+      <div id="mini-${h.code}" class="chart"></div>
+      <figcaption class="source">${h.chart}</figcaption>
+    </figure>
+  </section>`).join("");
+
+// chapters fade in as they reach the viewport (visible without JS / with reduced motion)
+if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {
+  document.body.classList.add("js-story");
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); } }),
+    { rootMargin: "0px 0px -10% 0px", threshold: 0.05 });
+  document.querySelectorAll(".chapter").forEach(c => io.observe(c));
+}
+
+/* ---------- Mini charts (dark) — drawn after Tailwind has laid out the cards ---------- */
+function drawMinis() {
+const L = (x = {}) => SF.darkLayout({ height: window.innerWidth < 640 ? 280 : 380, paper_bgcolor: SF.C.surface, plot_bgcolor: SF.C.surface,
+  font: { family: "Inconsolata, ui-monospace, Menlo, monospace", size: 12, color: D.ink2 }, ...x }), cfg = SF.miniConfig;
+// H1: PCA scatter, group = colour + shape; named regions direct-labelled
+(() => {
+  const grp = { swiss: [D.cat[0], "circle", "Schweiz-dominiert"], intl: [D.cat[1], "diamond", "international"], other: [D.other, "circle", "übrige"] };
+  const traces = Object.entries(grp).map(([g, [c, sym, name]]) => {
+    const s = P.h1.scores.filter(r => r.group === g);
+    return { x: s.map(r => r.pc1), y: s.map(r => r.pc2), text: s.map(r => r.name), type: "scatter",
+      mode: g === "other" ? "markers" : "markers+text", textposition: "top center", textfont: { size: 9, color: D.ink2 },
+      marker: { color: c, symbol: sym, size: g === "other" ? 6 : 9, line: { color: D.bg, width: 1.5 } }, name,
+      hovertemplate: `%{text}<br>PC1 %{x:.2f} · PC2 %{y:.2f}<extra>${name}</extra>` };
+  });
+  traces.forEach(t => { if (t.mode.includes("text")) t.text = t.text.map(n => n.split(/[ /]/)[0]); });
+  Plotly.newPlot("mini-H1", traces, L({ xaxis: { ...L().xaxis, title: { text: `PC1 (${Math.round(P.h1.variance[0] * 100)} %)`, standoff: 2 }, zeroline: true, zerolinecolor: D.ink2, showgrid: false },
+    yaxis: { ...L().yaxis, showticklabels: false, showgrid: false, zeroline: false }, margin: { l: 10, r: 10, t: 14, b: 30 } }), cfg);
+})();
+// H2: lollipop of the 6 location quotients vs 1
+(() => {
+  const c = P.h2.lqs.slice().reverse();
+  const lab = c.map(x => x.label.replace("Sommer 2025: LQ ", "S · ").replace("Winter 2025/26: LQ ", "W · ")
+    .replace(" > 1", "").replace("Deutschland", "DE").replace("Grossbritannien", "GB").replace("China", "CN").replace("Bern Region", "Bern"));
+  Plotly.newPlot("mini-H2", [
+    { x: c.map(x => x.value), y: lab, type: "bar", orientation: "h", base: 0, width: 0.08, marker: { color: D.axis }, hoverinfo: "skip" },
+    { x: c.map(x => x.value), y: lab, type: "scatter", mode: "markers", marker: { color: D.cat[0], size: 9, line: { color: D.bg, width: 1.5 } },
+      hovertemplate: "%{y}: LQ %{x:.2f}<extra></extra>" },
+  ], L({ shapes: [{ type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { color: D.ink2, width: 1, dash: "dash" } }],
+         xaxis: { ...L().xaxis, range: [0, 2.2], dtick: 0.5, title: { text: "LQ", standoff: 2 } }, yaxis: { ...L().yaxis, showgrid: false, tickfont: { size: 9, color: D.ink2 } },
+         margin: { l: 90, r: 10, t: 6, b: 30 } }), cfg);
+})();
+// H3: real Davos ΔHS with 5 cm threshold; delay part missing
+(() => {
+  const d = P.h3.days;
+  Plotly.newPlot("mini-H3", [{ x: d.map(r => r.date), y: d.map(r => r.hn ?? 0), type: "bar", marker: { color: d.map(r => (r.hn ?? 0) >= 5 ? D.cat[0] : D.axis) },
+    hovertemplate: "%{x|%d.%m.%Y}: ΔHS %{y:.0f} cm<extra>Davos</extra>" }],
+    L({ bargap: 0.1, shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 5, y1: 5, line: { color: D.ink2, width: 1, dash: "dash" } }],
+        xaxis: { ...L().xaxis, type: "date", tickformat: "%b", dtick: "M1", showgrid: false }, yaxis: { ...L().yaxis, title: { text: "cm", standoff: 2 } } }), cfg);
+})();
+// H4: Ist-Daten coverage per month
+(() => {
+  const c = P.coverage;
+  Plotly.newPlot("mini-H4", [{ x: c.map(m => m.ym), y: c.map(() => 1), type: "bar", marker: { color: c.map(m => m.loaded ? D.cat[0] : SF.C.empty),
+      line: { color: c.map(m => m.loaded ? D.cat[0] : D.axis), width: 1 } },
+    customdata: c.map(m => m.loaded ? (m.complete ? "geladen" : "teilweise") : "fehlt"), hovertemplate: "%{x}: %{customdata}<extra>Ist-Daten</extra>" }],
+    L({ bargap: 0.25, xaxis: { ...L().xaxis, type: "category", tickvals: ["2025-01", "2025-07", "2026-01", "2026-07"], ticktext: ["01/25", "07/25", "01/26", "07/26"], showgrid: false },
+        yaxis: { ...L().yaxis, visible: false, range: [0, 1.6] }, margin: { l: 10, r: 10, t: 10, b: 26 },
+        shapes: [{ type: "rect", x0: "2025-11", x1: "2026-04", yref: "paper", y0: 0, y1: 1, xref: "x", fillcolor: "rgba(57,135,229,.08)", line: { width: 0 }, layer: "below" }],
+        annotations: [{ xref: "paper", yref: "paper", x: 0.02, y: 0.98, xanchor: "left", yanchor: "top", showarrow: false,
+          text: `<b>${loaded} / ${c.length}</b> Monate geladen · Winter 25/26 hinterlegt`, font: { size: 10, color: D.ink2 } }] }), cfg);
+})();
+// H5: monthly nights indexed (mean = 100) — common base, one axis
+(() => {
+  const units = ["GR", "Zürich", "Bern"];
+  const traces = units.map((u, i) => {
+    const r = P.h5.filter(x => x.unit === u), m = r.reduce((s, x) => s + x.nights, 0) / r.length;
+    return { x: r.map(x => x.ym), y: r.map(x => x.nights / m * 100), type: "scatter", mode: "lines", line: { color: D.cat[i], width: 2 }, name: u,
+      hovertemplate: `${u} %{x}: Index %{y:.0f}<extra></extra>` };
+  });
+  Plotly.newPlot("mini-H5", traces, L({
+    xaxis: { ...L().xaxis, type: "category", tickvals: ["2025-01", "2025-07", "2026-01", "2026-07"], ticktext: ["01/25", "07/25", "01/26", "07/26"], showgrid: false },
+    yaxis: { ...L().yaxis, title: { text: "Index", standoff: 2 } }, margin: { l: 34, r: 10, t: 10, b: 26 } }), cfg);
+})();
+}
+window.addEventListener("load", () => requestAnimationFrame(() => {
+  drawMinis();
+  new ResizeObserver(() => H.forEach(h => Plotly.Plots.resize(`mini-${h.code}`))).observe(document.getElementById("chapters"));
+}));
+VIS.mount(VIS_O1);
+</script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+/* Design tokens — docs/UI-SPEC.md §4. Theme «Carbon Mint» (prototype default, adopted for the app
+   2026-11-06): source of truth = prototypes/shared/themes/carbon-mint.css + shared/styles.css.
+   Plotly cannot read CSS variables → the chart values are mirrored in app/components/palette.py. */
+:root {
+  color-scheme: dark;
+  /* Surfaces & ink */
+  --page: #1A1D20; --surface: #2C353F; --surface-2: #36414c;
+  --ink: #F4F6F8; --ink-2: #c3cbd3; --muted: #a8b2bd;
+  --grid: #3a4551; --axis: #56636f; --border: rgba(244, 246, 248, .12);
+  --focus: #a9a4ff; --accent: #00FFC2; --accent-ink: #1A1D20; --accent-hover: #5effd6;
+  --link: #a9a4ff; --brand: #d52b1e; --violet: #635BFF;
+
+  /* Chart "screens" */
+  --chart: #14171a; --chart-hover: #2C353F; --chart-empty: #262d35;
+  --chart-ink: #F4F6F8; --chart-ink2: #c3cbd3; --chart-muted: #9aa5b1;
+  --chart-grid: #262d35; --chart-axis: #3f4a56; --chart-accent: #00FFC2;
+  --viz-border: rgba(244, 246, 248, .08);
+
+  /* Categorical (fixed order) / sequential (dark: low values recede) / diverging */
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+  --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+  --other: #6f7a86;
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
+  --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+  --div-neg: #3987e5; --div-mid: #383835; --div-pos: #e66767;
+
+  /* Status (reserved meaning, always with icon + label) */
+  --good: #7ee07e; --warning: #f5c451; --serious: #ec835a; --critical: #ff9b9b;
+  --st-open: var(--muted); --st-confirmed: var(--good); --st-rejected: var(--critical);
+  --st-refined: var(--ink-2); --st-stale: var(--warning);
+  --src-history: var(--cat-1); --src-live: var(--cat-2);
+
+  /* Type — Quicksand (text), Inconsolata (numbers, labels, charts), Space Grotesk (headings) */
+  --font-sans: "Quicksand", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Inconsolata", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Space Grotesk", "Quicksand", system-ui, sans-serif;
+  --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 24px;
+
+  /* Spacing (4 px scale), shape, elevation */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-8: 32px;
+  --radius: 8px; --radius-sm: 6px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .45), 0 4px 14px rgba(0, 0, 0, .3);
+  --shadow-deep: 0 1px 2px rgba(0, 0, 0, .5), 0 6px 16px rgba(0, 0, 0, .35);
+  --nav-bg: rgba(20, 23, 26, .9); --nav-current-bg: rgba(0, 255, 194, .10);
+
+  /* aliases for names used before the theme switch */
+  --bg: var(--page); --text: var(--ink); --text-muted: var(--ink-2);
+
+  /* Data quality (US-04): completeness ramp; grey = not collected (no defect) */
+  --q-none: var(--chart-empty); --q-low: var(--seq-700); --q-mid: var(--seq-400); --q-high: var(--seq-100);
+
+  /* Dash 4 core components (dropdown, …) */
+  --Dash-Fill-Inverse-Strong: var(--surface-2);
+  --Dash-Text-Strong: var(--ink); --Dash-Text-Primary: var(--ink); --Dash-Text-Weak: var(--ink-2);
+  --Dash-Text-Disabled: var(--muted);
+  --Dash-Stroke-Strong: var(--axis); --Dash-Stroke-Weak: var(--border);
+  --Dash-Fill-Interactive-Strong: var(--violet); --Dash-Fill-Interactive-Weak: rgba(99, 91, 255, .14);
+  --Dash-Fill-Primary-Hover: rgba(244, 246, 248, .06); --Dash-Fill-Primary-Active: rgba(244, 246, 248, .10);
+  --Dash-Fill-Disabled: rgba(244, 246, 248, .06);
+  --Dash-Tooltip-Background-Color: var(--surface); --Dash-Tooltip-Border-Color: var(--border);
+}
+
+html { background: var(--page); overflow-x: clip; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; min-height: 100vh; color: var(--ink);
+  background: radial-gradient(1200px 520px at 15% -10%, rgba(99, 91, 255, .16), transparent 70%),
+              radial-gradient(900px 420px at 95% 0%, rgba(0, 255, 194, .07), transparent 70%), var(--page);
+  background-attachment: fixed;
+  font-family: var(--font-sans); font-size: var(--fs-md); line-height: 1.5; font-weight: 500;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+a { color: var(--link); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.display { font-family: var(--font-display); font-weight: 700; letter-spacing: -.02em; line-height: 1.05; }
+.text-ink2 { color: var(--ink-2) !important; }
+
+/* Bootstrap (data-bs-theme="dark" on the app root) → theme tokens */
+.sf-app {
+  --bs-body-bg: transparent; --bs-body-color: var(--ink); --bs-body-font-family: var(--font-sans);
+  --bs-secondary-color: var(--ink-2); --bs-tertiary-color: var(--muted);
+  --bs-border-color: var(--border); --bs-link-color: var(--link); --bs-link-hover-color: var(--accent);
+  --bs-link-color-rgb: 169, 164, 255; --bs-link-hover-color-rgb: 0, 255, 194;
+  --bs-emphasis-color: var(--ink); --bs-heading-color: var(--ink);
+}
+.sf-app .card { --bs-card-bg: var(--surface); --bs-card-border-color: var(--border);
+                --bs-card-cap-bg: transparent; border-radius: var(--radius); box-shadow: var(--shadow); }
+.sf-app .text-muted { color: var(--ink-2) !important; }
+.sf-app .btn-outline-secondary { --bs-btn-color: var(--ink-2); --bs-btn-border-color: var(--axis);
+  --bs-btn-hover-bg: var(--surface-2); --bs-btn-hover-color: var(--ink); --bs-btn-hover-border-color: var(--axis); }
+
+/* Nav (prototype SF.nav): sticky, blurred carbon, red brand mark, mint current page */
+.sf-nav { position: sticky; top: 0; z-index: 40; background: var(--nav-bg);
+          backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.sf-nav-inner { max-width: 1280px; margin: 0 auto; padding: 0 16px; height: 56px;
+                display: flex; align-items: center; gap: 12px; }
+.sf-brand { display: flex; align-items: center; gap: 8px; color: var(--ink); text-decoration: none; }
+.sf-brand:hover { color: var(--ink); }
+.brand-mark { width: 22px; height: 22px; border-radius: 5px; background: var(--brand); display: inline-grid;
+              place-items: center; color: #fff; font-weight: 800; font-size: 14px; }
+.sf-nav .nav { gap: 4px; margin-left: 16px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.sf-nav .nav-link { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--radius-sm);
+                    color: var(--ink-2); font-weight: 600; font-size: var(--fs-sm); white-space: nowrap; }
+.sf-nav .nav-link:hover { background: var(--surface-2); color: var(--ink); }
+.sf-nav .nav-link.active { color: var(--accent); background: var(--nav-current-bg);
+                           box-shadow: inset 0 0 0 1px rgba(0, 255, 194, .35); }
+.sf-main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+@media (min-width: 1024px) { .sf-main { padding-top: 28px; } }
+
+/* Page header (prototype: big display title) */
+.page-header { padding: 40px 0 20px; }
+@media (min-width: 1024px) { .page-header { padding: 64px 0 28px; } }
+.page-title { font-size: 2.25rem; margin: 0; }
+@media (min-width: 1024px) { .page-title { font-size: 3rem; } }
+
+/* Chart cards = darkest "screens"; information cards use --surface (UI-SPEC §0) */
+.viz-card { background: var(--chart); color: var(--ink); border: 1px solid var(--viz-border); border-radius: 12px;
+            box-shadow: var(--shadow-deep); padding: 16px; min-width: 0;
+            --surface: #14171a; --surface-2: #262d35; --muted: #9aa5b1; --grid: #262d35; --axis: #3f4a56;
+            --border: rgba(255, 255, 255, .08); }
+.viz-card h2 { font-family: var(--font-sans); font-size: 1rem; font-weight: 600; margin: 0; }
+.viz-card .source, .source { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--muted); margin-top: 6px; }
+.viz-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.viz-links { margin-left: auto; font-size: var(--fs-xs); font-weight: 600; }
+.viz-card a { color: var(--accent); }
+.section-title { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em;
+                 text-transform: uppercase; color: var(--ink-2); }
+
+/* Canton map (US-30): map card and detail panel share one height (the taller one wins) */
+.fill-col { display: flex; flex-direction: column; }
+.fill-col > .viz-card { flex: 1 1 auto; display: flex; flex-direction: column; }
+.map-fill { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 560px; }
+.map-fill > .dash-graph, .map-fill > div { flex: 1 1 auto; min-height: 560px; }
+.map-fill .js-plotly-plot, .map-fill .plot-container { height: 100% !important; }
+@media (max-width: 991px) { .map-fill, .map-fill > .dash-graph, .map-fill > div { min-height: 440px; } }
+.detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.viz-card .btn-close-panel { font-size: var(--fs-xs); font-weight: 600; min-height: 28px; padding: 0 10px;
+                             border-radius: var(--radius-sm); border: 1px solid var(--axis);
+                             background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.viz-card .btn-close-panel:hover { border-color: var(--accent); }
+.month-picker { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-2); }
+
+/* KPI cards on `/` (prototype 00-daten.html: grid 2 / 3 / 6, surface cards, mono numbers, sparkline) */
+.kpi-card { padding: 12px; min-width: 0; height: 100%; display: flex; flex-direction: column; }
+.kpi-card .kpi-label { font-size: var(--fs-xs); color: var(--ink-2); }
+.kpi-card .kpi-value { font-size: 1.5rem; line-height: 2rem; margin-top: 4px; }
+.kpi-delta { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.kpi-delta [title] { cursor: help; }
+.kpi-spark { height: 28px; margin-top: auto; padding-top: 4px; }
+.kpi-link { color: var(--ink); text-decoration: none; }
+.kpi-link:hover { color: var(--ink); border-color: var(--accent); }
+.cov-strip { display: flex; gap: 1px; margin-top: auto; padding-top: 8px; }
+.cov-cell { flex: 1; height: 10px; border-radius: 2px; background: var(--axis); }
+.cov-cell.is-loaded { background: var(--cat-1); }
+.kpi-period { font-size: var(--fs-xs); color: var(--ink-2); margin: 0 0 8px; }
+
+/* KPI tiles (quality page) */
+.kpi-tile { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow); }
+.kpi-label { color: var(--text-muted); font-size: var(--fs-sm); }
+.kpi-value { font-family: var(--font-mono); font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi-foot { display: flex; flex-wrap: wrap; gap: var(--sp-2); font-size: var(--fs-xs); }
+.kpi-note { color: var(--text-muted); }
+.kpi-status { font-weight: 600; }
+.kpi-ok { color: var(--st-confirmed); }
+.kpi-warn { color: var(--st-rejected); }
+
+.source-footnote { font-family: var(--font-mono); color: var(--muted); font-size: var(--fs-xs); margin-top: var(--sp-2); }
+.empty-state { padding: var(--sp-6); background: var(--surface-2); border: 1px dashed var(--axis); border-radius: var(--radius); }
+.q-legend { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
+.q-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px;
+            border: 1px solid var(--border); margin-left: var(--sp-2); }
+
+/* DataTable (quality page) on dark cards */
+.sf-app .dash-spreadsheet-container .dash-spreadsheet-inner td,
+.sf-app .dash-spreadsheet-container .dash-spreadsheet-inner th { background-color: var(--surface) !important;
+  color: var(--ink) !important; border-color: var(--grid) !important; }
+.sf-app .dash-spreadsheet-container .dash-spreadsheet-inner input { color: var(--ink); background: var(--surface-2); }

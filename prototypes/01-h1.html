@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H1 PCA – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/hpage.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>@media (min-width: 1024px) { #rules > summary { display: none; } }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const P = window.PROTO, C = SF.C, H1 = P.h1, TOTAL = "Herkunftsland - Total";
+const REGIONS = Object.keys(H1.names).filter(c => c !== "8100").sort((a, b) => +a - +b);
+const NAME = c => H1.names[c];
+const SHORT = c => NAME(c).replace(" / Vierwaldstättersee", "").replace(" Region", "").replace(" und Solothurn", "/SO").replace(" & Drei-Seen-Land", "/3-Seen");
+const FAR = ["China", "Vereinigte Staaten", "Indien", "Japan", "Korea (Süd-)", "Golf-Staaten"];
+const DEF_GROUPS = "1:s,11:s,2:s,4:i,10:i,3:i";
+const parseGroups = s => Object.fromEntries(String(s).split(",").filter(Boolean).map(x => x.split(":")));
+const fmtGroups = g => REGIONS.filter(c => g[c] && g[c] !== "-").map(c => `${c}:${g[c]}`).join(",");
+
+const DESC = [
+  { name: "period", label: "Zeitraum", group: "Daten", type: "enum", def: "all",
+    options: [["all", "01/2025–07/2026 (alle)"], ["2025", "2025"], ["2026", "2026 (01–07)"]], sweep: ["all", "2025", "2026"], chip: { all: "alle", 2025: "2025", 2026: "2026" } },
+  { name: "top_n", label: "Anzahl Herkunftsländer (Rest = Übrige)", group: "Regel", type: "integer", def: 15, min: 5, max: 30, step: 1, sweep: [5, 10, 15, 20, 30] },
+  { name: "scaling", label: "Skalierung", group: "Regel", type: "enum", radio: true, def: "zscore",
+    options: [["zscore", "z-Score je Land (Standard)"], ["share", "nur zentrierte Anteile"]], sweep: ["zscore", "share"], chip: { zscore: "z-Score", share: "Anteile" } },
+  { name: "groups", label: "Gruppenzuordnung (Hypothese)", group: "Regel", type: "assign", def: DEF_GROUPS,
+    items: REGIONS.map(c => [c, NAME(c)]), help: "CH = Schweiz-dominiert · Int. = international · – = nicht in der Hypothese",
+    get: (v, code) => parseGroups(v)[code] || "-",
+    set: (v, code, val) => { const g = parseGroups(v); g[code] = val; return fmtGroups(g); },
+    validate: v => { const g = Object.values(parseGroups(v)); return g.filter(x => x === "s").length < 2 || g.filter(x => x === "i").length < 2 ? "Jede Gruppe braucht mindestens 2 Regionen" : null; },
+    summary: v => { const g = parseGroups(v); const l = t => REGIONS.filter(c => g[c] === t).map(SHORT).join(", "); return `CH: ${l("s")} · Int.: ${l("i")}`; } },
+  { name: "require_loading_sign", label: "Ladung «Schweiz» muss Fernmärkten entgegengesetzt sein", group: "Entscheidung", type: "boolean", def: true },
+];
+
+/* ---- PCA recomputed in the browser from real HESTA cells (engine: services/hypotheses/h1_pca.py) ---- */
+function pcaFor(period, topN, scaling, regions = REGIONS) {
+  const cells = H1.cells[period], ch = cells["8100"];
+  const top = Object.keys(ch).filter(c => c !== TOTAL).sort((a, b) => ch[b] - ch[a]).slice(0, topN);
+  const cols = [...top, "Übrige"];
+  const M = regions.map(a => { const t = cells[a][TOTAL], row = top.map(c => (cells[a][c] || 0) / t); return [...row, 1 - row.reduce((s, x) => s + x, 0)]; });
+  const mu = cols.map((_, j) => Stats.mean(M.map(r => r[j]))), sd = cols.map((_, j) => Stats.std(M.map(r => r[j])) || 1);
+  const Z = M.map(r => r.map((x, j) => scaling === "zscore" ? (x - mu[j]) / sd[j] : (x - mu[j]) * 10));
+  const res = Stats.pca(Z, 2), iCH = cols.indexOf("Schweiz");
+  if (res.comps[0][iCH] < 0) { res.comps[0] = res.comps[0].map(x => -x); res.scores.forEach(s => { s[0] = -s[0]; }); }
+  return { cols, regions, ...res, swissShare: Object.fromEntries(regions.map(a => [a, (cells[a].Schweiz || 0) / cells[a][TOTAL]])) };
+}
+function judge(pc, groups, requireSign) {
+  const pc1 = Object.fromEntries(pc.regions.map((a, i) => [a, pc.scores[i][0]]));
+  const named = pc.regions.filter(a => groups[a] === "s" || groups[a] === "i");
+  const ok = named.filter(a => (groups[a] === "s") === (pc1[a] > 0));
+  const far = FAR.filter(c => pc.cols.includes(c)), iCH = pc.cols.indexOf("Schweiz");
+  const opp = far.filter(c => Math.sign(pc.comps[0][pc.cols.indexOf(c)]) !== Math.sign(pc.comps[0][iCH])).length;
+  return { pc1, named, ok, far, opp, a: ok.length === named.length, b: requireSign ? (far.length ? opp > far.length / 2 : null) : null };
+}
+function compute(p) {
+  const groups = parseGroups(p.groups), pc = pcaFor(p.period, p.top_n, p.scaling), j = judge(pc, groups, p.require_loading_sign);
+  const wrong = j.named.filter(a => !j.ok.includes(a)).map(SHORT);
+  const conds = [
+    { label: `Genannte Regionen auf der erwarteten Seite von PC1`, passed: j.a, value: `${j.ok.length} / ${j.named.length}${wrong.length ? ` (abweichend: ${wrong.join(", ")})` : ""}` },
+    { label: "Ladung «Schweiz» entgegengesetzt zu den Fernmärkten", passed: j.b,
+      value: j.far.length ? `${j.opp} / ${j.far.length} Fernmärkte` : "keine Fernmärkte in Top-N" },
+  ];
+  const verdict = j.a && j.b !== false ? "gestuetzt" : "nicht_gestuetzt";
+  return { p, pc, groups, j, conds, verdict, metricText: `${j.ok.length} / ${j.named.length} genannte Regionen auf der erwarteten PC1-Seite · PC1 erklärt ${Math.round(pc.vars[0] * 100)} %` };
+}
+function stability(p) {
+  const groups = parseGroups(p.groups), runs = [];
+  for (const per of ["2025", "2026"]) runs.push({ label: per, ok: judge(pcaFor(per, p.top_n, p.scaling), groups, false).a });
+  for (const drop of REGIONS) {
+    const regs = REGIONS.filter(r => r !== drop), j = judge(pcaFor(p.period, p.top_n, p.scaling, regs), groups, false);
+    runs.push({ label: `ohne ${SHORT(drop)}`, ok: j.a });
+  }
+  return runs;
+}
+
+const GROUP = { s: [C.cat[0], "circle", "Schweiz-dominiert"], i: [C.cat[1], "diamond", "international"], "-": [C.other, "circle", "übrige"] };
+function render(r, ctx) {
+  const pc = r.pc, g = r.groups, mobile = window.innerWidth < 640;
+  // biplot
+  const traces = Object.entries(GROUP).map(([k, [col, sym, name]]) => {
+    const idx = pc.regions.map((a, i) => i).filter(i => (g[pc.regions[i]] || "-") === k);
+    return { x: idx.map(i => pc.scores[i][0]), y: idx.map(i => pc.scores[i][1]), text: idx.map(i => SHORT(pc.regions[i])),
+      customdata: idx.map(i => [pc.regions[i], Math.round(pc.swissShare[pc.regions[i]] * 100)]), type: "scatter", mode: "markers+text",
+      textposition: "top center", textfont: { size: 11, color: k === "-" ? C.muted : C.ink2 }, name,
+      marker: { color: col, symbol: sym, size: k === "-" ? 8 : 12, line: { color: C.surface, width: 2 } },
+      hovertemplate: `<b>%{text}</b><br>PC1 %{x:.2f} · PC2 %{y:.2f}<br>Anteil Schweizer Gäste %{customdata[1]} %<extra>${name}</extra>` };
+  });
+  const xs = pc.scores.map(s => Math.abs(s[0])), ys = pc.scores.map(s => Math.abs(s[1]));
+  const scale = Math.min(Math.max(...xs), Math.max(...ys)) * 1.6;
+  const topL = pc.cols.map((c, j) => [c, pc.comps[0][j], pc.comps[1][j]]).sort((a, b) => Math.hypot(b[1], b[2]) - Math.hypot(a[1], a[2])).slice(0, 6);
+  const short = c => c.replace("Vereinigte Staaten", "USA").replace("Vereinigtes Königreich", "UK").replace("Korea (Süd-)", "Südkorea");
+  const arrows = topL.flatMap(([c, l1, l2]) => [
+    { x: l1 * scale, y: l2 * scale, ax: 0, ay: 0, axref: "x", ayref: "y", showarrow: true, arrowhead: 2, arrowsize: 1, arrowwidth: 1, arrowcolor: C.muted, text: "" },
+    { x: l1 * scale * 1.12, y: l2 * scale * 1.12, showarrow: false, text: short(c), font: { size: 10, color: C.muted } }]);
+  const base = SF.layout();
+  Plotly.react("biplot", traces, SF.layout({ height: mobile ? 360 : 440, margin: { l: 44, r: 12, t: 24, b: 44 },
+    xaxis: { ...base.xaxis, title: { text: `PC1 (${Math.round(pc.vars[0] * 100)} %)` }, zeroline: true, zerolinecolor: C.ink2, zerolinewidth: 1 },
+    yaxis: { ...base.yaxis, title: { text: `PC2 (${Math.round(pc.vars[1] * 100)} %)` }, zeroline: false },
+    annotations: [...arrows,
+      { xref: "paper", yref: "paper", x: 0, y: 1.06, xanchor: "left", showarrow: false, text: "← international", font: { size: 11, color: C.ink2 } },
+      { xref: "paper", yref: "paper", x: 1, y: 1.06, xanchor: "right", showarrow: false, text: "Schweiz-dominiert →", font: { size: 11, color: C.ink2 } }] }), SF.config("H1_biplot"));
+  document.getElementById("bpLegend").innerHTML = Object.values(GROUP).map(([c, sym, n]) =>
+    `<span class="inline-flex items-center gap-1"><span style="width:10px;height:10px;background:${c};display:inline-block;${sym === "diamond" ? "transform:rotate(45deg) scale(.85)" : "border-radius:999px"}"></span>${n}</span>`).join("")
+    + `<span class="inline-flex items-center gap-1"><span style="width:14px;border-top:1px solid ${C.muted};display:inline-block"></span>→ Ladungen (Top 6)</span>`;
+  // variance
+  Plotly.react("variance", [{ x: [pc.vars[0] * 100, pc.vars[1] * 100], y: ["PC1", "PC2"], type: "bar", orientation: "h", width: 0.5,
+    marker: { color: C.cat[0] }, text: pc.vars.map(v => `${Math.round(v * 100)} %`), textposition: "outside", cliponaxis: false, hovertemplate: "%{y}: %{x:.1f} %<extra></extra>" }],
+    SF.layout({ height: 120, margin: { l: 40, r: 40, t: 4, b: 28 }, xaxis: { ...base.xaxis, range: [0, 100], ticksuffix: " %" }, yaxis: { ...base.yaxis, autorange: "reversed", showgrid: false } }), SF.config("H1_variance"));
+  // loadings PC1 (diverging by sign)
+  const L = pc.cols.map((c, j) => [c, pc.comps[0][j]]).sort((a, b) => a[1] - b[1]);
+  Plotly.react("loadings", [{ x: L.map(l => l[1]), y: L.map(l => l[0].replace("Vereinigte Staaten", "USA").replace("Vereinigtes Königreich", "UK").replace("Korea (Süd-)", "Südkorea")),
+    type: "bar", orientation: "h", marker: { color: L.map(l => l[1] >= 0 ? C.divNeg : C.divPos) }, hovertemplate: "%{y}: %{x:.2f}<extra>Ladung PC1</extra>" }],
+    SF.layout({ height: Math.max(260, L.length * 17 + 40), margin: { l: 110, r: 12, t: 4, b: 28 }, bargap: 0.25,
+      xaxis: { ...base.xaxis, zeroline: true, zerolinecolor: C.ink2 }, yaxis: { ...base.yaxis, showgrid: false, tickfont: { size: 11, color: C.ink2 } } }), SF.config("H1_loadings"));
+  // stability
+  const runs = stability(r.p), okN = runs.filter(x => x.ok).length;
+  document.getElementById("stability").innerHTML = `<div class="flex items-baseline gap-2 mb-2"><b class="num text-lg whitespace-nowrap">${okN} / ${runs.length}</b>
+    <span class="text-sm text-ink2">Läufe, in denen alle genannten Regionen auf der erwarteten Seite liegen</span></div>
+    <div class="flex flex-wrap gap-1">${runs.map(x => `<span class="chip" style="cursor:default" title="${x.ok ? "getrennt" : "nicht getrennt"}">
+      <span aria-hidden="true" style="color:${x.ok ? "var(--v-supported)" : "var(--v-rejected-text)"}">${x.ok ? "✓" : "✕"}</span>${x.label}</span>`).join("")}</div>`;
+}
+
+HPage.init({
+  code: "H1", topic: "Dimensionsreduktion (PCA)", prev: "00-hypothesen.html", prevLabel: "Hypothesen", next: "02-h2.html", nextLabel: "H2",
+  statement: "Werden die Tourismusregionen anhand ihres Gästemixes (Quellmärkte) angeordnet, trennt die erste Achse Regionen, die von Schweizer Gästen dominiert werden (Graubünden, Wallis, Ostschweiz), von international geprägten Regionen (Luzern-Vierwaldstättersee, Genf, Region Zürich).",
+  question: "Trennt der Gästemix die Schweizer Ferienregionen von den internationalen?",
+  banner: "Echte BFS-HESTA-Daten · PCA im Browser nachgerechnet (Prototyp) – Urteil vorläufig",
+  resultTag: "vorläufig",
+  navStatus: { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" },
+  DESC, compute, render, csvTable: "scores",
+  evidenceHtml: `
+    <section class="viz-card p-4 min-w-0" data-rail="PCA-Biplot">
+      <h2 class="font-semibold">Regionen im Raum der Quellmärkte (PC1 × PC2)</h2>
+      <p class="text-xs text-ink2 mb-2">Jeder Punkt = eine Tourismusregion, positioniert nach den Anteilen ihrer Logiernächte je Herkunftsland. Klick auf eine Region → Gruppenzuordnung in den Regeln.</p>
+      <div id="bpLegend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 mb-1"></div>
+      <div id="biplot" class="chart" style="height:440px"></div>
+      <div class="source">Quelle: BFS HESTA (px-x-1003020000_103), Logiernächte nach Tourismusregion und Herkunftsland</div>
+    </section>
+    <div class="grid gap-5 md:grid-cols-2" data-rail="Varianz & Ladungen">
+      <section class="viz-card p-4 min-w-0"><h2 class="font-semibold mb-1">Erklärte Varianz</h2><div id="variance" class="chart"></div>
+        <h2 class="font-semibold mt-4 mb-1">Stabilität</h2><p class="text-xs text-ink2 mb-2">PCA je Jahr und mit je einer Region weggelassen.</p><div id="stability"></div></section>
+      <section class="viz-card p-4 min-w-0"><h2 class="font-semibold mb-1">Ladungen auf PC1</h2>
+        <p class="text-xs text-ink2 mb-1"><span style="color:#3987e5">■</span> positiv = Richtung Schweiz-dominiert · <span style="color:#e66767">■</span> negativ = Richtung international</p>
+        <div id="loadings" class="chart"></div><div class="source">Quelle: BFS HESTA</div></section>
+    </div>`,
+  defs: r => [`Ma­trix: 13 Tourismusregionen × Top-${r.p.top_n} Herkunftsländer (nach Logiernächten CH) + «Übrige» = Total − Σ Top-${r.p.top_n}`,
+    `Wert = Anteil der Logiernächte je Land an der Region; ${r.p.scaling === "zscore" ? "z-standardisiert je Land" : "nur zentriert"}`,
+    "Vorzeichen von PC1 so fixiert, dass «Schweiz» positiv lädt",
+    "Fernmärkte: China, USA, Indien, Japan, Südkorea, Golf-Staaten (sofern in Top-N)"],
+  basis: r => [`Zeitraum: ${{ all: "01/2025–07/2026", 2025: "2025", 2026: "01–07/2026" }[r.p.period]}`, `Regionen: ${r.pc.regions.length} (ohne «Schweiz» total)`,
+    "Ausgeschlossen: unterdrückte/geschätzte Monate", "Datenversion: proto-2026-10-15"],
+  seedVariants: [
+    { id: 3, name: "Wallis nicht in der Hypothese", author: "Mai", date: "15.10.", pinned: true, params: { groups: "1:s,2:s,4:i,10:i,3:i" } },
+    { id: 4, name: "Top 10 Länder", author: "Lukas", date: "15.10.", pinned: false, params: { top_n: 10 } },
+  ],
+  afterInit: () => document.getElementById("biplot").on("plotly_click", ev => {
+    const code = ev.points[0].customdata[0];
+    document.getElementById("rules").open = true;
+    const b = document.querySelector(`[data-item="${code}"]`);
+    if (b) { b.closest(".flex").scrollIntoView({ behavior: "smooth", block: "center" }); b.focus(); }
+  }),
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+/* Theme «Canopy & Citron» (23/10/2026) — climate-tech: Linen Wash #EAE4D9 page, Deep Canopy Green #1A4D2E cards,
+   Inchyra Blue #364E59 (deep step #142026 = chart surface), Acid Lime #DFFF00 accent on dark surfaces only.
+   Text contrast (WCAG): on #1A4D2E ink 8.5:1, ink-2 6.9:1, muted 5.6:1, lime 8.6:1; on linen ink 12.3:1, ink-2 7.7:1,
+   muted 6.9:1 (lime never on linen: 1.1:1). Chart palette validated on #142026 and #0f191e (dataviz validator: ALL PASS,
+   every slot >= 3:1). A theme file defines every colour token; styles.css only uses them (UI-SPEC §4). */
+:root {
+  color-scheme: dark;
+  --canopy: #1A4D2E; --lime: #DFFF00; --linen: #EAE4D9; --inchyra: #364E59;
+
+  /* Dark surfaces & ink (cards, nav, modal) */
+  --page: #10291a; --surface: #1A4D2E; --surface-2: #235c39;
+  --ink: #f3efe7; --ink-2: #d3dccf; --muted: #b4c8ba;
+  --grid: #2c6343; --axis: #4d7f61; --border: rgba(234, 228, 217, .16);
+  --focus: #DFFF00; --accent: #DFFF00; --accent-ink: #1A4D2E; --accent-hover: #ecff66; --link: #DFFF00; --brand: #d52b1e;
+
+  /* Chart chrome (read by SF.C / SF.D in app.js) */
+  --chart: #142026; --chart-screen: #0f191e; --chart-hover: #22323a; --chart-empty: #22323a;
+  --chart-ink: #f3efe7; --chart-ink2: #c9d3d6; --chart-muted: #9fb1b8; --chart-grid: #24343c; --chart-axis: #3b525d;
+  --chart-accent: #DFFF00;
+
+  /* Categorical (fixed order) / sequential (dark: low values recede into the surface) / diverging */
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+  --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+  --other: #6b7f88;
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
+  --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+  --div-neg: #3987e5; --div-mid: #383835; --div-pos: #e66767;
+
+  /* Status, verdicts, data semantics */
+  --good: #7ee07e; --warning: #f5c451; --serious: #ec835a; --critical: #ff9b9b;
+  --v-supported: #7ee07e; --v-rejected: #ffb3b3; --v-unknown: var(--ink-2);
+  --v-supported-bg: rgba(126, 224, 126, .14); --v-rejected-bg: rgba(255, 179, 179, .14); --v-unknown-bg: transparent; --v-rejected-text: #ffb3b3;
+  --rule-standard: var(--ink-2); --rule-variant: var(--accent);
+  --season-winter-bg: rgba(57, 135, 229, .14);
+  --h1-swiss: var(--cat-1); --h1-intl: var(--cat-2); --h1-other: var(--other);
+  --snow-day: var(--seq-400); --snow-none: var(--seq-600); --heavy-day: var(--accent);
+
+  /* Page chrome */
+  --nav-bg: rgba(26, 77, 46, .94); --nav-current-bg: rgba(223, 255, 0, .12);
+  --toast-action: #DFFF00; --backdrop: rgba(8, 20, 13, .62);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 4px 14px rgba(0, 0, 0, .25);
+  --shadow-deep: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 16px rgba(0, 0, 0, .3);
+  --shadow-float: 0 8px 30px rgba(16, 41, 26, .16), 0 1px 3px rgba(16, 41, 26, .12);
+  --viz-border: rgba(234, 228, 217, .12);
+  --play-bg: #364E59;
+}
+
+/* Linen page: flat Linen Wash with a faint grain ("raw textured base"). Text on it is dark green; primary buttons are
+   canopy with lime text (8.6:1). Falling flakes are Inchyra on linen. */
+body {
+  color-scheme: light;
+  --page: #EAE4D9; --surface: rgba(255, 255, 255, .55); --surface-2: rgba(255, 255, 255, .80);
+  --page-bg: #EAE4D9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .21 0 0 0 0 .30 0 0 0 0 .35 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --ink: #10291a; --ink-2: #1A4D2E; --muted: #364E59;
+  --grid: rgba(26, 77, 46, .16); --axis: rgba(26, 77, 46, .40); --border: rgba(26, 77, 46, .20);
+  --focus: #1A4D2E; --accent: #1A4D2E; --accent-ink: #DFFF00; --accent-hover: #235c39; --link: #1A4D2E; --rule-variant: var(--accent);
+  --snow: #364E59;
+  --v-supported: #0a5c0a; --v-rejected: #7a1414; --v-unknown: var(--ink-2); --v-rejected-text: #7a1414;
+  --v-supported-bg: rgba(255, 255, 255, .85); --v-rejected-bg: rgba(255, 255, 255, .85); --v-unknown-bg: rgba(255, 255, 255, .6);
+  --ico-ink: #ffffff; --tag-fg: #5a3c00; --tag-bg: rgba(255, 244, 214, .92); --tag-border: #c99a2e;
+  --shadow: 0 1px 2px rgba(16, 41, 26, .16), 0 6px 18px rgba(16, 41, 26, .12);
+}
+
+/* Dark scopes (class name .navy-scope kept from the navy theme) */
+.navy-scope, .card, .viz-card, .screen-card {
+  color-scheme: dark;
+  --page: #10291a; --surface: #1A4D2E; --surface-2: #235c39;
+  --ink: #f3efe7; --ink-2: #d3dccf; --muted: #b4c8ba;
+  --grid: #2c6343; --axis: #4d7f61; --border: rgba(234, 228, 217, .16);
+  --focus: #DFFF00; --accent: #DFFF00; --accent-ink: #1A4D2E; --accent-hover: #ecff66; --link: #DFFF00; --rule-variant: var(--accent);
+  --v-supported: #7ee07e; --v-rejected: #ffb3b3; --v-unknown: var(--ink-2); --v-rejected-text: #ffb3b3;
+  --v-supported-bg: rgba(126, 224, 126, .14); --v-rejected-bg: rgba(255, 179, 179, .14); --v-unknown-bg: transparent;
+  --ico-ink: #10291a; --tag-fg: #f5c451; --tag-bg: rgba(245, 196, 81, .10); --tag-border: rgba(245, 196, 81, .35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 4px 14px rgba(0, 0, 0, .25);
+}
+
+/* Chart cards: deep Inchyra "screens" */
+.viz-card {
+  --surface: #142026; --surface-2: #22323a; --ink: #f3efe7; --ink-2: #c9d3d6; --muted: #9fb1b8;
+  --grid: #24343c; --axis: #3b525d; --border: rgba(255, 255, 255, .08); --accent: #DFFF00;
+  --v-supported: #6fdc6f; --v-rejected-text: #ffb3b3; --v-unknown-bg: #22323a;
+}
+.screen-card {
+  --s-bg: #142026; --s-screen: #0f191e; --s-ink: #f3efe7; --s-ink2: #c9d3d6; --s-muted: #9fb1b8; --s-grid: #24343c; --s-axis: #3b525d;
+  --s-cat-1: #3987e5; --s-cat-2: #d95926; --s-cat-3: #199e70; --s-other: #6b7f88; --s-link: #DFFF00;
+  --s-border: rgba(234, 228, 217, .12); --s-missing: #22323a; --s-unknown-ico: #4a6470;
+  --s-supported: #7ee07e; --s-supported-bg: rgba(12, 163, 12, .18); --s-rejected: #ffb3b3; --s-rejected-bg: rgba(208, 59, 59, .22);
+}
+
+/* «Selbst testen» band: Inchyra Blue; cards inside stay canopy with lime (text on band: ink 7.7:1, ink-2 6.8:1, muted 5.6:1) */
+.story-play {
+  --ink: #f3efe7; --ink-2: #dbe3e6; --muted: #c3d0d5; --grid: rgba(234, 228, 217, .2);
+  --accent: #DFFF00; --accent-ink: #1A4D2E; --accent-hover: #ecff66; --focus: #DFFF00; --link: #DFFF00; --rule-variant: var(--accent);
+}

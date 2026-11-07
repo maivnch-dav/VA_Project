@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H4 Neuschnee – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/net.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/hpage.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>@media (min-width: 1024px) { #rules > summary { display: none; } }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const P = window.PROTO, C = SF.C, DAYS = P.h3.days, TOTAL = "Herkunftsland - Total";
+const REG = [["1", "Graubünden"], ["11", "Wallis"], ["6", "Bern Region"], ["12", "Tessin"], ["2", "Ostschweiz"], ["4", "Luzern"]];
+
+const DESC = [
+  { name: "altitude_m", label: "Bergstation ab Höhe >", group: "Regel", type: "integer", def: 1000, min: 500, max: 2500, step: 100, unit: "m", sweep: [800, 1000, 1200, 1500, 2000] },
+  { name: "snow_cm", label: "Neuschnee ab", group: "Regel", type: "number", def: 5, min: 1, max: 50, step: 1, unit: "cm", sweep: [3, 5, 10, 15] },
+  { name: "snow_lag_days", label: "Vortage zählen mit", group: "Regel", type: "integer", def: 1, min: 0, max: 2, step: 1, unit: "Tage", sweep: [0, 1, 2] },
+  { name: "max_snow_dist_km", label: "Max. Distanz zur Schneestation", group: "Regel", type: "enum", def: "none",
+    options: [["none", "kein Limit"], ["25", "≤ 25 km"], ["10", "≤ 10 km"]], sweep: ["none", "25", "10"], chip: { none: "kein Limit", 25: "≤ 25 km", 10: "≤ 10 km" } },
+  { name: "r_min", label: "(b) kein Rückgang, wenn r ≥", group: "Entscheidung", type: "number", def: -0.3, min: -0.9, max: 0, step: 0.05, sweep: [-0.5, -0.3, -0.1] },
+];
+
+/* ---- simulated engine (prototype only; real: services/hypotheses/h4_snow.py). Snow days come from real Davos ΔHS,
+        YoY change of overnight stays is real HESTA; delays/cancellations are SAMPLE. ---- */
+function snowDays(p) {
+  let n = 0;
+  DAYS.forEach((d, i) => { for (let l = 0; l <= p.snow_lag_days; l++) { const j = DAYS[i - l]; if (j && j.hn !== null && j.hn >= p.snow_cm) { n++; break; } } });
+  return n;
+}
+const yoy = (() => { // real: % change of monthly overnight stays 2026 vs 2025, months 01–07
+  const m = {}; for (const [ym, a, c, v] of P.h2.monthly_all) if (c === TOTAL) m[`${a}|${ym}`] = v;
+  return REG.flatMap(([a, n]) => [1, 2, 3, 4, 5, 6, 7].map(mo => { const k = String(mo).padStart(2, "0"), v25 = m[`${a}|2025-${k}`], v26 = m[`${a}|2026-${k}`];
+    return v25 && v26 ? { a, n, mo, y: (v26 / v25 - 1) * 100 } : null; }).filter(Boolean));
+})();
+function compute(p) {
+  const sd = snowDays(p), alt = (p.altitude_m - 500) / 2000;
+  const nAll = Math.round(3022 * Math.exp(-(p.altitude_m - 1000) / 650));
+  const exDist = Math.round(nAll * ({ none: 0, 25: 0.09, 10: 0.38 }[p.max_snow_dist_km]));
+  const exNoSnow = Math.round(41 * nAll / 3022), nSt = nAll - exDist - exNoSnow;
+  const w = Math.sqrt(28 / Math.max(1, sd)) * Math.sqrt(Math.max(1, 3022 / Math.max(50, nSt)) ** 0.3);
+  const eff = [
+    { key: "delay", label: "Ø Verspätung", unit: "min", d: 0.22 + 0.25 * alt + 0.012 * (p.snow_cm - 5), h: 0.18 * w, base: [0.2, 0.8, 1.4, 2.2, 4.0] },
+    { key: "late", label: "Anteil ≥ 3 min", unit: "pp", d: 2.4 + 2.5 * alt + 0.08 * (p.snow_cm - 5), h: 1.4 * w, base: [4, 9, 14, 21, 33] },
+    { key: "cancel", label: "Ausfallquote", unit: "pp", d: 0.45 + 0.25 * alt + 0.03 * (p.snow_cm - 5), h: 0.33 * w, base: [0, 0.2, 0.6, 1.3, 3.0] },
+  ].map(e => ({ ...e, lo: e.d - e.h, hi: e.d + e.h }));
+  const rnd = Stats.rng(7 + p.snow_cm);
+  const pts = yoy.map(q => ({ ...q, x: (q.mo <= 4 ? (rnd() - 0.5) * 12 : (rnd() - 0.5) * 2) * Math.min(2, 5 / p.snow_cm) }));
+  const r = Stats.spearman(pts.map(q => q.x), pts.map(q => q.y));
+  const conds = [
+    { label: "(a) Verspätung an Neuschneetagen höher: 95 %-KI der Median-Differenz > 0", passed: eff[0].lo > 0, value: `+${eff[0].d.toFixed(2)} min [${eff[0].lo.toFixed(2)}, ${eff[0].hi.toFixed(2)}]` },
+    { label: "(a) Ausfälle an Neuschneetagen höher: 95 %-KI > 0", passed: eff[2].lo > 0, value: `+${eff[2].d.toFixed(2)} pp [${eff[2].lo.toFixed(2)}, ${eff[2].hi.toFixed(2)}]` },
+    { label: `(b) kein Rückgang der Logiernächte: r ≥ ${p.r_min.toFixed(2)}`, passed: r >= p.r_min, value: `r = ${r.toFixed(2)} (n = ${pts.length})` },
+  ];
+  const ok = conds.every(c => c.passed);
+  return { p, sd, nSt, nAll, exDist, exNoSnow, eff, pts, r, conds, verdict: ok ? "gestuetzt" : "nicht_gestuetzt",
+    metricText: `Ø Verspätung +${eff[0].d.toFixed(2)} min, Ausfälle +${eff[2].d.toFixed(2)} pp an Neuschneetagen · Logiernächte r = ${r.toFixed(2)}` };
+}
+
+function render(r) {
+  const base = SF.layout();
+  // (a) box plots per measure removed 07.11.2026 (user); the effects still feed the verdict via compute()
+  Plotly.react("yoy", [{ x: r.pts.map(q => q.x), y: r.pts.map(q => q.y), type: "scatter", mode: "markers", text: r.pts.map(q => `${q.n} · Monat ${q.mo}`),
+    marker: { color: C.cat[0], size: 9, line: { color: C.surface, width: 2 } }, hovertemplate: "%{text}<br>Δ Neuschneetage %{x:.1f} · Δ Logiernächte %{y:.1f} %<extra></extra>" }],
+    SF.layout({ height: 300, margin: { l: 48, r: 10, t: 6, b: 42 }, xaxis: { ...base.xaxis, title: { text: "Δ Neuschneetage ggü. Vorjahresmonat" }, zeroline: true, zerolinecolor: C.axis },
+      yaxis: { ...base.yaxis, title: { text: "Δ Logiernächte YoY (%)" }, zeroline: true, zerolinecolor: C.axis } }), SF.config("H4_yoy"));
+  document.getElementById("yoyMeta").innerHTML = `Spearman r = <b class="num">${r.r.toFixed(2)}</b> · n = ${r.pts.length} (6 Regionen × Monate 01–07) ·
+    <span class="text-ink2">Kein Rückgang beobachtet ≠ kein Effekt (kleines n)</span>`;
+  const rnd = Stats.rng(3), dist = Array.from({ length: 400 }, () => Math.min(60, -Math.log(1 - rnd()) * 9));
+  const lim = r.p.max_snow_dist_km === "none" ? null : +r.p.max_snow_dist_km;
+  Plotly.react("dist", [{ x: dist, type: "histogram", xbins: { start: 0, end: 60, size: 2.5 }, marker: { color: C.seq[3], line: { color: C.surface, width: 1 } }, hovertemplate: "%{x} km: %{y} Stationen (Stichprobe)<extra></extra>" }],
+    SF.layout({ height: 180, margin: { l: 40, r: 10, t: 6, b: 36 }, bargap: 0.05, xaxis: { ...base.xaxis, title: { text: "Distanz Bergstation → Schneestation (km)" } }, yaxis: { ...base.yaxis },
+      shapes: lim ? [{ type: "line", x0: lim, x1: lim, yref: "paper", y0: 0, y1: 1, line: { color: C.accent, width: 2, dash: "dash" } }] : [] }), SF.config("H4_distance"));
+  document.getElementById("excl").innerHTML = `<li>Ohne Schneestation: <b class="num">${r.exNoSnow}</b> Stationen</li>
+    <li>Über Distanzlimit: <b class="num">${r.exDist}</b> Stationen${lim ? ` (> ${lim} km)` : ""}</li><li>Verwendet: <b class="num">${r.nSt.toLocaleString("de-CH")}</b> von ${r.nAll.toLocaleString("de-CH")}</li>`;
+}
+
+const VIS_H4 = [  // chosen techniques (UI-SPEC §2.9); order = evidence order: N2 → 1, N1 → 2 (07.11.2026)
+  { id: "N2", tech: "3.1", prio: "C", title: "Linking: Box-Plot ↔ Karte", rail: "Box-Plot ↔ Karte", sample: "Beispiel",
+    note: "Klick auf eine Box markiert deren oberes Quartil auf der Karte: Wo liegen die Bergstationen mit den grössten Verspätungen?",
+    source: "Median Ø Verspätung je Bergstation (Beispiel) · Lage der Stationen echt (Stationsliste) · Hintergrund: Stationen ≥ 300 Halte/Tag", draw: (el) => VIS.drawN2(el) },
+  { id: "N1", tech: "3.2 + 3.4", prio: "S", title: "Small Multiples je Bergstation", rail: "Je Bergstation", sample: "Verspätung Beispiel · Stationen echt",
+    note: "Die 12 meistbedienten Orte über 1000 m, nach Höhe sortiert, gemeinsame y-Achse: Tage ohne vs. mit Neuschnee. Ist der Effekt überall da, oder ziehen wenige Stationen den Mittelwert? n = Anzahl Neuschneetage der Station (oft klein).",
+    source: "Stationen, Höhen aus der Stationsliste (echt) · Ø Verspätung je Stationstag = Beispiel, bis die Ist-Daten geladen sind · Neuschnee = ΔHS ≥ 5 cm", draw: (el) => VIS.drawN1(el) },
+];
+
+HPage.init({
+  code: "H4", topic: "Neuschnee, Verkehrsstörungen und Logiernächte", prev: "03-h3.html", prevLabel: "H3", next: "05-h5.html", nextLabel: "H5",
+  statement: "An Tagen mit Neuschnee steigen Verspätungen und Ausfälle auf Bergstrecken, die Logiernächte des Monats sinken dadurch aber nicht.",
+  question: "Bremst Neuschnee die Bergstrecken – ohne dass weniger Gäste übernachten?",
+  banner: "Beispieldaten · Verspätungen/Ausfälle simuliert (Ist-Daten fehlen) · Neuschneetage aus echter Davos-Schneehöhe · Logiernächte YoY = echte HESTA-Daten",
+  resultTag: "Beispieldaten – kein echtes Urteil",
+  navStatus: { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" },
+  DESC, compute, render, csvTable: "group_stats",
+  afterInit: () => VIS.mount(VIS_H4),
+  evidenceHtml: VIS.sections(VIS_H4) + `
+    <div class="grid gap-5 md:grid-cols-[3fr_2fr]" data-rail="Logiernächte YoY">
+      <section class="viz-card p-4 min-w-0">
+        <h2 class="font-semibold">(b) Neuschneetage vs. Logiernächte (Vorjahresvergleich)</h2>
+        <p class="text-xs mb-1" id="yoyMeta"></p>
+        <div id="yoy" class="chart"></div>
+        <div class="source">Quelle: BFS HESTA (echt) · Neuschneetage je Region/Monat: <b>Beispiel</b></div>
+      </section>
+      <section class="viz-card p-4 min-w-0">
+        <h2 class="font-semibold mb-1">Ausgeschlossen</h2>
+        <ul class="text-sm grid gap-1 mb-2" id="excl"></ul>
+        <div id="dist" class="chart"></div>
+        <div class="source">Stichprobe der Distanzen (Prototyp)</div>
+      </section>
+    </div>`,
+  defs: r => [`Bergstation = Station in CH mit Höhe > ${r.p.altitude_m} m`,
+    `Neuschneetag = ΔHS ≥ ${r.p.snow_cm} cm an der nächsten Schneestation am Tag${r.p.snow_lag_days ? ` oder an den ${r.p.snow_lag_days} Vortag(en)` : ""}`,
+    "Wintertage = November–April", "(b) Δ gegenüber gleichem Monat 2025, Monate 01–07 (nur diese überlappen)"],
+  basis: r => [`Stationen: ${r.nSt.toLocaleString("de-CH")} (nach Ausschlüssen)`, "Zeitraum (a): Wintermonate mit Ist-Daten", "Zeitraum (b): 01–07/2025 vs. 01–07/2026", "Datenversion: proto-2026-10-15"],
+  seedVariants: [{ id: 5, name: "Nur Stationen ≤ 10 km zur Schneestation", author: "Mai", date: "15.10.", pinned: true, params: { max_snow_dist_km: "10" } }],
+});
+</script>
+</body>
+</html>

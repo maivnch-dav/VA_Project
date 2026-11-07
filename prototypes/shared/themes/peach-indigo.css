@@ -1,0 +1,94 @@
+/* Theme «Peach & Indigo» (23/10/2026) — human-centric: Cream #FFF8F0 page (soft lavender wash at the end), Deep Indigo
+   #2B2D42 cards/nav, Soft Peach #FF9E7D accent on dark surfaces only, Dusty Lavender #B8B5D6 for secondary text on
+   indigo and the «Selbst testen» band. Chart cards are a deeper indigo "screen" #1d1e2e.
+   Text contrast (WCAG): on #2B2D42 ink 12.8:1, ink-2 9.4:1, muted (lavender) 6.8:1, peach 6.7:1; on cream ink 12.8:1,
+   ink-2 7.9:1, muted 5.9:1 (peach never as text on cream: 1.9:1 → primary button = indigo with peach text 6.7:1).
+   Chart palette validated on #1d1e2e and #181926 (dataviz validator: ALL PASS, every slot >= 3:1). */
+:root {
+  color-scheme: dark;
+  --indigo: #2B2D42; --peach: #FF9E7D; --lavender: #B8B5D6; --cream: #FFF8F0;
+
+  /* Dark surfaces & ink (cards, nav, modal) */
+  --page: #2B2D42; --surface: #2B2D42; --surface-2: #383a55;
+  --ink: #FFF8F0; --ink-2: #d7d5ea; --muted: #B8B5D6;
+  --grid: #3f4160; --axis: #5a5c7e; --border: rgba(184, 181, 214, .2);
+  --focus: #FF9E7D; --accent: #FF9E7D; --accent-ink: #2B2D42; --accent-hover: #ffb79e; --link: #FF9E7D; --brand: #d52b1e;
+
+  /* Chart chrome (read by SF.C / SF.D in app.js) */
+  --chart: #1d1e2e; --chart-screen: #181926; --chart-hover: #2B2D42; --chart-empty: #292b40;
+  --chart-ink: #FFF8F0; --chart-ink2: #d7d5ea; --chart-muted: #B8B5D6; --chart-grid: #2a2c42; --chart-axis: #45476a;
+  --chart-accent: #FF9E7D;
+
+  /* Categorical (fixed order) / sequential (dark: low values recede into the surface) / diverging */
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500;
+  --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #e66767;
+  --other: #6f7088;
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
+  --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+  --div-neg: #3987e5; --div-mid: #383835; --div-pos: #e66767;
+
+  /* Status, verdicts, data semantics */
+  --good: #7ee07e; --warning: #f5c451; --serious: #ec835a; --critical: #ff9b9b;
+  --v-supported: #7ee07e; --v-rejected: #ffb3b3; --v-unknown: var(--ink-2);
+  --v-supported-bg: rgba(126, 224, 126, .14); --v-rejected-bg: rgba(255, 179, 179, .14); --v-unknown-bg: transparent; --v-rejected-text: #ffb3b3;
+  --rule-standard: var(--ink-2); --rule-variant: var(--accent);
+  --season-winter-bg: rgba(57, 135, 229, .14);
+  --h1-swiss: var(--cat-1); --h1-intl: var(--cat-2); --h1-other: var(--other);
+  --snow-day: var(--seq-400); --snow-none: var(--seq-600); --heavy-day: var(--accent);
+
+  /* Page chrome */
+  --nav-bg: rgba(43, 45, 66, .95); --nav-current-bg: rgba(255, 158, 125, .14);
+  --toast-action: #FF9E7D; --backdrop: rgba(24, 25, 38, .6);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .2);
+  --shadow-deep: 0 1px 2px rgba(0, 0, 0, .35), 0 6px 16px rgba(0, 0, 0, .25);
+  --shadow-float: 0 8px 30px rgba(43, 45, 66, .16), 0 1px 3px rgba(43, 45, 66, .12);
+  --viz-border: rgba(184, 181, 214, .14);
+  --play-bg: #B8B5D6;
+}
+
+/* Cream page with a soft lavender wash toward the end. Text on it is indigo; falling flakes are lavender. */
+body {
+  color-scheme: light;
+  --page: #FFF8F0; --surface: rgba(255, 255, 255, .65); --surface-2: rgba(255, 255, 255, .9);
+  --page-bg: linear-gradient(180deg, #FFF8F0 0%, #FFF8F0 55%, #f3effa 100%);
+  --ink: #2B2D42; --ink-2: #4a4c6a; --muted: #5d5f7e;
+  --grid: rgba(43, 45, 66, .14); --axis: rgba(43, 45, 66, .38); --border: rgba(43, 45, 66, .18);
+  --focus: #2B2D42; --accent: #2B2D42; --accent-ink: #FF9E7D; --accent-hover: #383a55; --link: #2B2D42; --rule-variant: var(--accent);
+  --snow: #a9a6c9;
+  --v-supported: #0a5c0a; --v-rejected: #7a1414; --v-unknown: var(--ink-2); --v-rejected-text: #7a1414;
+  --v-supported-bg: rgba(255, 255, 255, .9); --v-rejected-bg: rgba(255, 255, 255, .9); --v-unknown-bg: rgba(255, 255, 255, .6);
+  --ico-ink: #ffffff; --tag-fg: #5a3c00; --tag-bg: rgba(255, 244, 214, .92); --tag-border: #c99a2e;
+  --shadow: 0 1px 2px rgba(43, 45, 66, .12), 0 6px 18px rgba(43, 45, 66, .10);
+}
+
+/* Dark scopes (cards, nav, modal) */
+.navy-scope, .card, .viz-card, .screen-card {
+  color-scheme: dark;
+  --page: #2B2D42; --surface: #2B2D42; --surface-2: #383a55;
+  --ink: #FFF8F0; --ink-2: #d7d5ea; --muted: #B8B5D6;
+  --grid: #3f4160; --axis: #5a5c7e; --border: rgba(184, 181, 214, .2);
+  --focus: #FF9E7D; --accent: #FF9E7D; --accent-ink: #2B2D42; --accent-hover: #ffb79e; --link: #FF9E7D; --rule-variant: var(--accent);
+  --v-supported: #7ee07e; --v-rejected: #ffb3b3; --v-unknown: var(--ink-2); --v-rejected-text: #ffb3b3;
+  --v-supported-bg: rgba(126, 224, 126, .14); --v-rejected-bg: rgba(255, 179, 179, .14); --v-unknown-bg: transparent;
+  --ico-ink: #2B2D42; --tag-fg: #f5c451; --tag-bg: rgba(245, 196, 81, .10); --tag-border: rgba(245, 196, 81, .35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .2);
+}
+
+/* Chart cards: deeper indigo "screens" */
+.viz-card {
+  --surface: #1d1e2e; --surface-2: #292b40; --ink: #FFF8F0; --ink-2: #d7d5ea; --muted: #B8B5D6;
+  --grid: #2a2c42; --axis: #45476a; --border: rgba(255, 255, 255, .08); --accent: #FF9E7D;
+  --v-supported: #6fdc6f; --v-rejected-text: #ffb3b3; --v-unknown-bg: #292b40;
+}
+.screen-card {
+  --s-bg: #1d1e2e; --s-screen: #181926; --s-ink: #FFF8F0; --s-ink2: #d7d5ea; --s-muted: #B8B5D6; --s-grid: #2a2c42; --s-axis: #45476a;
+  --s-cat-1: #3987e5; --s-cat-2: #d95926; --s-cat-3: #199e70; --s-other: #6f7088; --s-link: #FF9E7D;
+  --s-border: rgba(184, 181, 214, .14); --s-missing: #292b40; --s-unknown-ico: #5a5c7e;
+  --s-supported: #7ee07e; --s-supported-bg: rgba(12, 163, 12, .18); --s-rejected: #ffb3b3; --s-rejected-bg: rgba(208, 59, 59, .22);
+}
+
+/* «Selbst testen» band: Dusty Lavender; text on it indigo (6.8:1, ink-2 5.9:1, muted 5.4:1); cards inside stay indigo with peach */
+.story-play {
+  --ink: #2B2D42; --ink-2: #34364f; --muted: #3a3c58; --grid: rgba(43, 45, 66, .2);
+  --accent: #2B2D42; --accent-ink: #FF9E7D; --accent-hover: #383a55; --focus: #2B2D42; --link: #2B2D42; --rule-variant: var(--accent);
+}

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H5 Intensität – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/canton_lq.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/hpage.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>@media (min-width: 1024px) { #rules > summary { display: none; } }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const P = window.PROTO, C = SF.C, ROWS = P.h5;
+const CITIES = [["Zürich", "Zürich"], ["Bern", "Bern"], ["Genève", "Genève"], ["Basel", "Basel"], ["Luzern", "Luzern"], ["Lausanne", "Lausanne"], ["St. Gallen", "St. Gallen"]];
+
+const DESC = [
+  { name: "cities", label: "Städte (Gemeinden)", group: "Regel", type: "multi", def: "Zürich,Bern", options: CITIES, minSel: 1, maxSel: 5,
+    help: "1–5 Gemeinden mit HESTA-Daten und ≥ 10 Stationen" },
+  { name: "delay_metric", label: "Verspätungsmass", group: "Regel", type: "enum", radio: true, def: "mean",
+    options: [["mean", "Ø Verspätung (min)"], ["late_share", "Anteil Halte ≥ 3 min"]], sweep: ["mean", "late_share"], chip: { mean: "Ø min", late_share: "≥ 3 min" } },
+  { name: "adjust", label: "Bereinigung", group: "Regel", type: "enum", radio: true, def: "none",
+    options: [["none", "keine (roh)"], ["partial_snow", "Neuschneetage herausgerechnet (partiell)"], ["deseasonalised", "saisonbereinigt (Ø je Saison abgezogen)"]],
+    sweep: ["none", "partial_snow", "deseasonalised"], chip: { none: "roh", partial_snow: "ohne Schnee", deseasonalised: "saisonbereinigt" } },
+  { name: "require_ci_separation", label: "KI von GR muss über den KI der Städte liegen", group: "Entscheidung", type: "boolean", def: false },
+];
+
+/* ---- engine sketch (real: services/hypotheses/h5_intensity.py). Nights = real HESTA; delays = SAMPLE. ---- */
+function series(unit, p) {
+  const r = ROWS.filter(x => x.unit === unit), rnd = Stats.rng(unit.length * 31);
+  let x = r.map(q => q.nights), y = r.map(q => p.delay_metric === "mean" ? q.delay_min : 0.06 + 0.055 * q.delay_min + (rnd() - 0.5) * 0.01);
+  const snow = r.map(q => { const m = +q.ym.slice(5); return unit === "GR" && (m <= 4 || m >= 11) ? 4 + (rnd() * 8) : rnd() * 1.5; });
+  if (p.adjust === "deseasonalised") {
+    const by = s => { const idx = r.map((q, i) => i).filter(i => r[i].season === s); return idx; };
+    for (const s of ["W", "S"]) { const idx = by(s), mx = Stats.mean(idx.map(i => x[i])), my = Stats.mean(idx.map(i => y[i]));
+      idx.forEach(i => { x[i] -= mx; y[i] -= my; }); }
+  }
+  return { unit, r, x, y, snow };
+}
+function partialSpearman(x, y, z) {
+  const rx = Stats.ranks(x), ry = Stats.ranks(y), rz = Stats.ranks(z);
+  const resid = (a, b) => { const mb = Stats.mean(b), ma = Stats.mean(a); let sab = 0, sbb = 0; for (let i = 0; i < a.length; i++) { sab += (a[i] - ma) * (b[i] - mb); sbb += (b[i] - mb) ** 2; }
+    const beta = sbb ? sab / sbb : 0; return a.map((v, i) => v - ma - beta * (b[i] - mb)); };
+  return Stats.pearson(resid(rx, rz), resid(ry, rz));
+}
+function compute(p) {
+  const units = ["GR", ...String(p.cities).split(",").filter(Boolean)];
+  const res = units.map(u => {
+    const s = series(u, p);
+    const fn = p.adjust === "partial_snow" ? (a, b) => partialSpearman(a, b, s.snow.slice(0, a.length)) : Stats.spearman;
+    const r = fn(s.x, s.y);
+    const ci = p.adjust === "partial_snow" ? Stats.bootstrapCI(s.x.map((v, i) => [v, s.snow[i]]), s.y, (xs, ys) => partialSpearman(xs.map(q => q[0]), ys, xs.map(q => q[1])), 400)
+      : Stats.bootstrapCI(s.x, s.y, Stats.spearman, 400);
+    return { ...s, rho: r, ci };
+  });
+  const gr = res[0], cities = res.slice(1);
+  const conds = [
+    { label: "Graubünden: r > 0", passed: gr.rho > 0, value: `r = ${gr.rho.toFixed(2)}` },
+    ...cities.map(c => ({ label: `r Graubünden > r ${c.unit}`, passed: gr.rho > c.rho, value: `${gr.rho.toFixed(2)} vs ${c.rho.toFixed(2)}` })),
+    { label: "KI getrennt (GR-Untergrenze > Obergrenze jeder Stadt)", passed: p.require_ci_separation ? cities.every(c => gr.ci[0] > c.ci[1]) : null,
+      value: cities.map(c => `${c.unit}: ${gr.ci[0] > c.ci[1] ? "getrennt" : "überlappt"}`).join(" · ") },
+  ];
+  const ok = conds.every(c => c.passed !== false);
+  return { p, res, conds, verdict: ok ? "gestuetzt" : "nicht_gestuetzt",
+    metricText: `r Graubünden ${gr.rho.toFixed(2)} vs. ${cities.map(c => `${c.unit} ${c.rho.toFixed(2)}`).join(", ")}` };
+}
+
+function render(r) {
+  const base = SF.layout(), unitLbl = r.p.delay_metric === "mean" ? "Ø Verspätung (min)" : "Anteil ≥ 3 min";
+  const adj = r.p.adjust === "deseasonalised";
+  const allY = r.res.flatMap(s => s.y), yr = [Math.min(...allY), Math.max(...allY)], pad = (yr[1] - yr[0]) * 0.1;
+  const grid = document.getElementById("scatters");
+  grid.innerHTML = r.res.map((s, i) => `<div class="min-w-0"><div class="text-sm font-semibold">${s.unit === "GR" ? "Graubünden (Region)" : `${s.unit} (Gemeinde)`}
+    <span class="text-ink2 font-normal num">· r = ${s.rho.toFixed(2)}</span></div><div id="sc-${i}" class="chart"></div></div>`).join("");
+  r.res.forEach((s, i) => {
+    const seas = [["W", "Winter", C.cat[0], "circle"], ["S", "Sommer", C.cat[1], "diamond"]].map(([k, n, col, sym]) => {
+      const idx = s.r.map((q, j) => j).filter(j => s.r[j].season === k);
+      return { x: idx.map(j => adj ? s.x[j] / 1000 : s.x[j] / 1000), y: idx.map(j => s.y[j]), text: idx.map(j => s.r[j].ym), type: "scatter", mode: "markers", name: n,
+        marker: { color: col, symbol: sym, size: 9, line: { color: C.surface, width: 2 } }, hovertemplate: `%{text} (${n})<br>%{x:.0f} Tsd. Logiernächte · %{y:.2f}<extra>${s.unit}</extra>` };
+    });
+    // OLS line for orientation only
+    const xm = Stats.mean(s.x), ym = Stats.mean(s.y); let sxy = 0, sxx = 0; s.x.forEach((v, j) => { sxy += (v - xm) * (s.y[j] - ym); sxx += (v - xm) ** 2; });
+    const b = sxx ? sxy / sxx : 0, xs = [Math.min(...s.x), Math.max(...s.x)];
+    seas.push({ x: xs.map(v => v / 1000), y: xs.map(v => ym + b * (v - xm)), type: "scatter", mode: "lines", line: { color: C.ink2, width: 1.5 }, hoverinfo: "skip" });
+    Plotly.react(`sc-${i}`, seas, SF.layout({ height: 230, margin: { l: 44, r: 8, t: 6, b: 40 },
+      xaxis: { ...base.xaxis, title: { text: adj ? "Logiernächte − Ø Saison (Tsd.)" : "Logiernächte (Tsd.)" } },
+      yaxis: { ...base.yaxis, title: { text: adj ? "Δ " + unitLbl : unitLbl }, range: [yr[0] - pad, yr[1] + pad] } }), SF.config(`H5_${s.unit}`));
+  });
+  // forest plot
+  const f = r.res.slice().reverse();
+  Plotly.react("forest", [{ x: f.map(s => s.rho), y: f.map(s => s.unit === "GR" ? "Graubünden" : s.unit), type: "scatter", mode: "markers",
+    error_x: { type: "data", symmetric: false, array: f.map(s => s.ci[1] - s.rho), arrayminus: f.map(s => s.rho - s.ci[0]), color: C.ink2, thickness: 1.5, width: 0 },
+    marker: { color: f.map(s => s.unit === "GR" ? C.cat[0] : C.ink2), size: 10, line: { color: C.surface, width: 2 } },
+    customdata: f.map(s => s.ci), hovertemplate: "%{y}: r = %{x:.2f} [%{customdata[0]:.2f}, %{customdata[1]:.2f}]<extra></extra>" }],
+    SF.layout({ height: 70 + f.length * 34, margin: { l: 90, r: 12, t: 6, b: 34 }, xaxis: { ...base.xaxis, range: [-1, 1], title: { text: "Spearman r (95 %-KI)" }, zeroline: true, zerolinecolor: C.ink2 },
+      yaxis: { ...base.yaxis, showgrid: false } }), SF.config("H5_forest"));
+}
+
+/* ---- Pixel scatter (Evidenz 1, 07.11.2026): every canton × month as a pixel; x = Logiernächte, y = Verspätung ---- */
+const MOUNTAIN = new Set(["GR", "VS", "UR", "OW", "NW", "GL", "AI", "BE"]);
+const SEASON_LATE = [1, 1.05, 1.1, 1.15, 1.25, 1.35, 1.4, 1.4, 1.37, 1.25, 1.15, 1.1];  // network profile Jan…Dec (sample)
+function cantonMonths() {
+  const D = window.PROTO_CANTON_LQ, rnd = Stats.rng(11), out = [];
+  for (const c of D.cantons) {
+    if (c.actual_share < 0.5 || !c.used) continue;                              // GE, SH: too few actual times
+    const series = D.monthly[c.kanton] || {}, yms = Object.keys(series).sort();
+    const mean = Stats.mean(yms.map((m) => series[m])), base = c.late / c.used, w = MOUNTAIN.has(c.kanton) ? 1 : 0.3;
+    for (const ym of yms) {
+      const real = ym === D.month;
+      const late = real ? base
+        : base * SEASON_LATE[+ym.slice(5) - 1] / SEASON_LATE[0] * (1 + 0.15 * w * (series[ym] / mean - 1)) * (1 + (rnd() - 0.5) * 0.12);
+      out.push({ k: c.kanton, ym, nights: series[ym], late, real });
+    }
+  }
+  return out;
+}
+function drawPixelScatter(el, st = { color: "abs" }) {
+  // rows = cantons (by total nights, largest on top), columns = delay bins, pixel colour = nights of the month(s) in that cell
+  const C = SF.C, pts = cantonMonths(), rel = st.color === "rel", BIN = 1;               // 1 %-point delay bins
+  const kantone = [...new Set(pts.map((q) => q.k))];
+  const total = Object.fromEntries(kantone.map((k) => [k, pts.filter((q) => q.k === k).reduce((a, q) => a + q.nights, 0)]));
+  kantone.sort((a, b) => total[a] - total[b]);                                          // plotly draws y bottom → top
+  const mean = Object.fromEntries(kantone.map((k) => [k, total[k] / pts.filter((q) => q.k === k).length]));
+  const NX = Math.ceil(Math.max(...pts.map((q) => q.late * 100)) / BIN), xc = Array.from({ length: NX }, (_, i) => (i + 0.5) * BIN);
+  const cell = kantone.map(() => Array.from({ length: NX }, () => []));
+  pts.forEach((q) => cell[kantone.indexOf(q.k)][Math.min(NX - 1, Math.floor(q.late * 100 / BIN))].push(q));
+  const val = (q) => (rel ? Math.log2(q.nights / mean[q.k]) : Math.log10(q.nights));
+  const z = cell.map((row) => row.map((v) => (v.length ? Stats.mean(v.map(val)) : null)));
+  const mlab = (ym) => `${ym.slice(5)}/${ym.slice(2, 4)}`, fmt = (n) => Math.round(n).toLocaleString("de-CH");
+  const hover = cell.map((row) => row.map((v) => v.map((q) => `${mlab(q.ym)}: ${fmt(q.nights)} Nächte${q.real ? " (echt)" : ""}`).join("<br>")));
+  const zs = z.flat().filter((v) => v !== null), lo = Math.min(...zs), hi = Math.max(...zs);
+  const colorbar = rel
+    ? { title: { text: "Nächte vs.<br>Kantonsmittel", font: { size: 10, color: C.ink2 } }, tickvals: [-2, -1, 0, 1, 2], ticktext: ["÷4", "÷2", "Ø", "×2", "×4"] }
+    : { title: { text: "Logiernächte<br>im Monat", font: { size: 10, color: C.ink2 } }, tickvals: [2, 3, 4, 5, 6], ticktext: ["100", "1 Tsd.", "10 Tsd.", "100 Tsd.", "1 Mio."] };
+  const real = pts.filter((q) => q.real), r = Stats.spearman(real.map((q) => q.nights), real.map((q) => q.late));
+  const y = kantone.map((k) => (HR5_UNITS.includes(k) ? `<b>${k}</b>` : k));
+  Plotly.react(el, [
+    { type: "heatmap", x: xc, y, z, customdata: hover, xgap: 1, ygap: 1, hoverongaps: false,
+      zmin: rel ? -Math.max(Math.abs(lo), Math.abs(hi)) : lo, zmax: rel ? Math.max(Math.abs(lo), Math.abs(hi)) : hi,
+      colorscale: rel ? [[0, C.divNeg], [0.5, C.divMid], [1, C.divPos]] : C.seq.map((c, i) => [i / (C.seq.length - 1), c]),
+      colorbar: { ...colorbar, thickness: 10, len: 0.8, tickfont: { size: 10, color: C.ink2 } },
+      hovertemplate: "%{y} · Verspätung %{x:.1f} %<br>%{customdata}<extra></extra>" },
+    { type: "scatter", mode: "markers", name: "echt (01/2025)", y: real.map((q) => y[kantone.indexOf(q.k)]),
+      x: real.map((q) => xc[Math.min(NX - 1, Math.floor(q.late * 100 / BIN))]),
+      marker: { symbol: "square-open", size: 12, color: C.accent, line: { width: 2 } }, hoverinfo: "skip" },
+  ], SF.layout({
+    height: kantone.length * (window.innerWidth < 640 ? 16 : 19) + 110, margin: { l: 44, r: 12, t: 36, b: 48 }, plot_bgcolor: C.empty, showlegend: true,
+    legend: { orientation: "h", x: 0, y: 1.01, yanchor: "bottom", font: { size: 11, color: C.ink2 } },
+    annotations: [{ xref: "paper", yref: "paper", x: 1, y: 1.01, xanchor: "right", yanchor: "bottom", showarrow: false,
+      text: `Spearman r (nur echte Werte, n = ${real.length}) = ${r.toFixed(2)}`, font: { size: 11, color: C.ink2 } }],
+    xaxis: { ...SF.layout().xaxis, title: { text: "Verspätung: Anteil Halte ≥ 3 min (%)" }, showgrid: false, range: [0, NX * BIN], ticksuffix: " %", dtick: 5 },
+    yaxis: { ...SF.layout().yaxis, type: "category", showgrid: false, tickfont: { size: 11, color: C.ink2 } },
+  }), SF.config("H5_pixel_kanton_monat"));
+}
+const VIS_H5_FIRST = [
+  { id: "PX", title: "Pixel-Matrix: Kantone × Verspätung, Farbe = Logiernächte", rail: "Pixel-Matrix", sample: "Verspätung Beispiel ausser 01/2025",
+    note: "Eine Zeile je Kanton (24, nach Logiernächten sortiert, grösste oben; fett = in der Hypothese genannt). Jeder Monat 01/2025–07/2026 setzt in seiner Zeile ein Pixel bei seinem Anteil Halte ≥ 3 min (1-%-Klassen); die Farbe zeigt die Logiernächte dieses Monats (mehrere Monate im selben Pixel = Mittel, Hover listet sie). Wenn H5 stimmt, liegen die hellen (gästestarken) Pixel einer Zeile weiter rechts. «relativ» färbt jeden Monat gegenüber dem Mittel seines Kantons – so wird die Saison innerhalb einer Zeile sichtbar. Umrandet = echte Verspätung Januar 2025; übrige Verspätungen sind Beispielwerte, bis die Ist-Daten geladen sind. GE und SH fehlen (unter 50 % der Halte mit Ist-Zeit).",
+    seg: { key: "color", def: "abs", label: "Farbe", opts: [["abs", "Logiernächte absolut"], ["rel", "relativ zum Kantonsmittel"]] },
+    source: "Logiernächte: BFS HESTA Gemeinden (px-x-1003020000_101), je Kanton summiert, echt · Verspätung: Ist-Daten (history) 01/2025 echt, übrige Monate Beispiel",
+    draw: (el, st) => drawPixelScatter(el, st) },
+];
+/* ---- Standortquotient je Kanton: Verspätung und Logiernächte (real, built by shared/make_canton_lq.py) ---- */
+const HR5_UNITS = ["GR", "ZH", "BE"];
+function drawCantonLQ(el) {
+  const D = window.PROTO_CANTON_LQ, C = SF.C, mob = window.innerWidth < 640;
+  const rows = D.cantons.filter((c) => c.lq_nights !== null || c.lq_delay !== null)
+    .sort((a, b) => (a.lq_nights ?? 0) - (b.lq_nights ?? 0));              // largest at the top
+  const y = rows.map((c) => (HR5_UNITS.includes(c.kanton) ? `<b>${c.kanton}</b>` : c.kanton));
+  const unsure = (c) => c.actual_share < 0.5;
+  const lx = [], ly = [];
+  rows.forEach((c, i) => { if (c.lq_delay !== null && c.lq_nights !== null) { lx.push(c.lq_delay, c.lq_nights, null); ly.push(y[i], y[i], null); } });
+  const ok = rows.filter((c) => c.lq_delay !== null && c.lq_nights !== null && !unsure(c));
+  const r = Stats.spearman(ok.map((c) => c.lq_nights), ok.map((c) => c.lq_delay));
+  const pct = (v) => `${(v * 100).toFixed(1)} %`;
+  Plotly.react(el, [
+    { type: "scatter", mode: "lines", x: lx, y: ly, line: { color: C.axis, width: 2 }, hoverinfo: "skip", showlegend: false },
+    { type: "scatter", mode: "markers", name: "Verspätung", x: rows.map((c) => c.lq_delay), y,
+      marker: { color: C.cat[0], size: 10, symbol: rows.map((c) => (unsure(c) ? "circle-open" : "circle")), line: { color: C.cat[0], width: 2 } },
+      customdata: rows.map((c) => [pct(c.late / c.used), pct(c.actual_share), unsure(c) ? " · unsicher (wenig Ist-Zeiten)" : ""]),
+      hovertemplate: "%{y} · Verspätung<br>LQ %{x:.2f} · %{customdata[0]} der Halte ≥ 3 min<br>Halte mit Ist-Zeit: %{customdata[1]}%{customdata[2]}<extra></extra>" },
+    { type: "scatter", mode: "markers", name: "Logiernächte", x: rows.map((c) => c.lq_nights), y,
+      marker: { color: C.cat[1], size: 10, symbol: "diamond", line: { color: C.surface, width: 1 } },
+      customdata: rows.map((c) => [Math.round(c.nights).toLocaleString("de-CH"), c.municipalities]),
+      hovertemplate: "%{y} · Logiernächte<br>LQ %{x:.2f} · %{customdata[0]} Nächte (%{customdata[1]} HESTA-Gemeinden)<extra></extra>" },
+  ], SF.layout({
+    height: rows.length * (mob ? 20 : 22) + 90, margin: { l: 44, r: 12, t: 40, b: 40 }, showlegend: true, hovermode: "closest",
+    legend: { orientation: "h", x: 0, y: 1.06, yanchor: "bottom", font: { size: 12, color: C.ink2 } },
+    shapes: [{ type: "line", x0: 1, x1: 1, yref: "paper", y0: 0, y1: 1, line: { color: C.ink2, width: 1, dash: "dash" } }],
+    annotations: [{ xref: "paper", yref: "paper", x: 1, y: 1.06, xanchor: "right", yanchor: "bottom", showarrow: false,
+      text: `Spearman r = ${r.toFixed(2)} (n = ${ok.length} Kantone)`, font: { size: 11, color: C.ink2 } }],
+    xaxis: { ...SF.layout().xaxis, type: "log", title: { text: "Standortquotient (log, 1 = Schweizer Durchschnitt)" },
+             tickvals: [0.1, 0.25, 0.5, 1, 2, 4, 8], ticktext: ["0.1", "0.25", "0.5", "1", "2", "4", "8"] },
+    yaxis: { ...SF.layout().yaxis, showgrid: false, tickfont: { size: 11, color: C.ink2 } },
+  }), SF.config("H5_lq_kantone"));
+}
+const VIS_H5 = [  // new LQ chart (07.11.2026) + chosen techniques (UI-SPEC §2.9)
+  { id: "LQ", title: "Standortquotient (LQ) je Kanton: Verspätung und Logiernächte", rail: "LQ je Kanton",
+    note: "LQ &gt; 1 = über dem Schweizer Durchschnitt. <b>Verspätung</b> = Anteil Halte ≥ 3 min im Kanton ÷ Anteil der Schweiz (Basis: Halte mit Ist-Zeit). <b>Logiernächte</b> = Anteil des Kantons an den Logiernächten ÷ Anteil an allen ÖV-Halten, also Tourismusintensität gemessen am Verkehrsvolumen. Sortiert nach LQ Logiernächte; wenn H5 stimmt, liegen die blauen Punkte oben eher rechts. Hohl = weniger als 50 % der Halte mit Ist-Zeit (GE, SH) → unsicher, nicht in r. Fett = in der Hypothese genannte Kantone (GR, ZH, BE).",
+    source: "Echte Daten, Januar 2025: Ist-Daten (history), opentransportdata.swiss, Halte verknüpft mit einer Schweizer Gemeinde · BFS HESTA Gemeinden (px-x-1003020000_101), alle Herkunftsländer – nur die in der Gemeindetabelle publizierten (Tourismus-)Gemeinden, also eine untere Schranke",
+    draw: (el) => drawCantonLQ(el) },
+  { id: "I1", tech: "3.1", prio: "S", title: "SPLOM: Monat × Einheit", rail: "SPLOM", sample: "Verspätung/Ausfälle Beispiel · Nächte + Schnee echt",
+    note: "Logiernächte, Ø Verspätung, Neuschneetage und Ausfälle paarweise; ein Punkt = ein Monat einer Einheit, Farbe + Form = Saison. Macht den saisonalen Störfaktor sichtbar – die Begründung für den Schalter «Bereinigung». Auf dem Handy nur eingeschränkt lesbar.",
+    source: "Quellen: BFS HESTA (Nächte) · MeteoSchweiz SMN (Neuschneetage, ΔHS ≥ 5 cm) · Verspätung/Ausfälle = Beispiel, bis die Ist-Daten geladen sind", draw: (el) => VIS.drawI1(el) },
+  { id: "I3", tech: "3.2", prio: "C", title: "Alle Einheiten, sortiert nach Logiernächten", rail: "Alle Einheiten", sample: "explorativ · Verspätung Beispiel",
+    note: "Small Multiples «ordered by a quantitative variable»: setzt «GR stärker als Städte» in den Kontext. Nur GR, Zürich und Bern sind in der Hypothese genannt (markiert); die übrigen Einheiten sind explorativ.",
+    source: "Quellen: BFS HESTA (Nächte, echt) · Ø Verspätung = Beispiel, bis die Ist-Daten geladen sind · r = Spearman je Einheit", draw: (el) => VIS.drawI3(el) },
+];
+
+HPage.init({
+  code: "H5", topic: "Tourismusintensität und Verspätungen", prev: "04-h4.html", prevLabel: "H4", next: "00-hypothesen.html", nextLabel: "Hypothesen",
+  statement: "Monate mit mehr Logiernächten in einer Region haben dort höhere mittlere Verspätungen, in Graubünden stärker als in Städten.",
+  question: "Sind Züge in Monaten mit mehr Touristen unpünktlicher – in Graubünden mehr als in den Städten?",
+  banner: "Beispieldaten · Verspätungen simuliert (Ist-Daten fehlen) · Logiernächte = echte BFS-HESTA-Daten",
+  resultTag: "Beispieldaten – kein echtes Urteil",
+  navStatus: { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" },
+  DESC, compute, render, csvTable: "monthly",
+  afterInit: () => VIS.mount([...VIS_H5_FIRST, ...VIS_H5]),
+  evidenceHtml: VIS.sections(VIS_H5_FIRST) + `
+    <section class="viz-card p-4 min-w-0" data-rail="Streudiagramme">
+      <h2 class="font-semibold">Logiernächte vs. Verspätung pro Monat</h2>
+      <p class="text-xs text-ink2 mb-2">Ein Punkt = ein Monat (01/2025–07/2026). Jede Einheit hat eine eigene x-Achse (sehr unterschiedliche Grösse), die y-Achse ist gemeinsam. Linie = OLS, nur zur Orientierung.</p>
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 mb-1">
+        <span class="inline-flex items-center gap-1"><span class="dot" style="background:${SF.C.cat[0]}"></span>Winter (11–04)</span>
+        <span class="inline-flex items-center gap-1"><span style="width:9px;height:9px;background:${SF.C.cat[1]};display:inline-block;transform:rotate(45deg)"></span>Sommer (05–10)</span></div>
+      <div id="scatters" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"></div>
+      <div class="source">Quelle: BFS HESTA (_103 Region GR, _101 Gemeinden) · Ist-Daten (history) – <b>hier simuliert</b></div>
+      <p class="text-xs mt-2 p-2 rounded" style="background:var(--v-unknown-bg)"><b>Saisonaler Störfaktor:</b> Im Winter gibt es in GR zugleich mehr Gäste und mehr Schnee. Unter «Bereinigung» lässt sich der Schnee- bzw. Saisoneffekt herausrechnen.</p>
+    </section>
+    <section class="viz-card p-4 min-w-0" data-rail="Stärke je Einheit">
+      <h2 class="font-semibold mb-1">Stärke des Zusammenhangs je Einheit</h2>
+      <div id="forest" class="chart"></div>
+      <div class="source">Bootstrap über Monate (400×, Seed 42)</div>
+    </section>` + VIS.sections(VIS_H5),
+  defs: r => ["Graubünden = Tourismusregion (HESTA _103), Städte = Gemeinden (HESTA _101)",
+    `Verspätung je Monat = ${r.p.delay_metric === "mean" ? "Ø Verspätung gewichtet mit n_actual" : "Anteil Halte ≥ 3 min"} über die Stationen der Einheit`,
+    { none: "keine Bereinigung", partial_snow: "partielle Korrelation: Neuschneetage herausgerechnet", deseasonalised: "Ø je Saison von beiden Grössen abgezogen" }[r.p.adjust],
+    "Zusammenhang = Spearman r; Korrelation ≠ Kausalität"],
+  basis: r => [`Einheiten: ${r.res.length}`, `Monate je Einheit: ${r.res[0].r.length}`, "Ausgeschlossen: unterdrückte/geschätzte HESTA-Monate", "Datenversion: proto-2026-10-15"],
+  seedVariants: [{ id: 6, name: "Saisonbereinigt", author: "Lukas", date: "15.10.", pinned: true, params: { adjust: "deseasonalised" } }],
+});
+</script>
+</body>
+</html>

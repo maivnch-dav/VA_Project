@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H3 Anomalie – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="shared/app.js"></script>
+  <script src="shared/data.js"></script>
+  <script src="shared/net.js"></script>
+  <script src="shared/stats.js"></script>
+  <script src="shared/hpage.js"></script>
+  <script src="shared/rail.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inconsolata:wght@400;500;700&family=Quicksand:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="shared/styles.css">
+  <script src="shared/theme.js"></script>
+  <script src="shared/vis.js"></script>
+  <script src="shared/snow.js"></script>
+  <style>@media (min-width: 1024px) { #rules > summary { display: none; } }</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const P = window.PROTO, C = SF.C, DAYS = P.h3.days;
+const DESC = [
+  { name: "snow_station", label: "Schneestation", group: "Regel", type: "enum", def: "DAV",
+    options: [["DAV", "Davos (DAV)"], ["SAM", "Samedan (SAM) – im Prototyp n/v", true], ["SCU", "Scuol (SCU) – im Prototyp n/v", true]] },
+  { name: "snow_cm", label: "Neuschnee ab", group: "Regel", type: "number", def: 5, min: 1, max: 50, step: 1, unit: "cm", sweep: [3, 5, 10, 15, 20] },
+  { name: "snow_lag_days", label: "Vortage zählen mit", group: "Regel", type: "integer", def: 1, min: 0, max: 2, step: 1, unit: "Tage", sweep: [0, 1, 2] },
+  { name: "heavy_mode", label: "Starkverspätung definiert als", group: "Regel", type: "enum", radio: true, def: "station_share",
+    options: [["station_share", "Anteil Stationen mit vielen Verspätungen"], ["mean_delay", "Ø Verspätung Graubünden"], ["late_share", "Anteil Halte ≥ 3 min"]],
+    sweep: ["station_share", "mean_delay", "late_share"], chip: { station_share: "Anteil Stationen", mean_delay: "Ø Verspätung", late_share: "Anteil ≥ 3 min" } },
+  { name: "station_late_count", label: "Station stark ab > … Ankünfte ≥ 3 min", group: "Regel", type: "integer", def: 5, min: 1, max: 50, step: 1, when: ["heavy_mode", "station_share"], sweep: [3, 5, 8, 10] },
+  { name: "heavy_share", label: "Tag stark, wenn Anteil Stationen >", group: "Regel", type: "number", def: 0.5, min: 0.05, max: 0.95, step: 0.05, pct: true, when: ["heavy_mode", "station_share"], sweep: [0.3, 0.4, 0.5, 0.6, 0.7] },
+  { name: "min_station_arrivals", label: "Nur Stationen mit ≥ … Ankünften", group: "Regel", type: "integer", def: 1, min: 1, max: 50, step: 1, when: ["heavy_mode", "station_share"] },
+  { name: "mean_delay_min", label: "Tag stark, wenn Ø Verspätung >", group: "Regel", type: "number", def: 3, min: 1, max: 10, step: 0.5, unit: "min", when: ["heavy_mode", "mean_delay"], sweep: [2, 2.5, 3, 3.5] },
+  { name: "late_share", label: "Tag stark, wenn Anteil Halte ≥ 3 min >", group: "Regel", type: "number", def: 0.2, min: 0.05, max: 0.8, step: 0.01, pct: true, when: ["heavy_mode", "late_share"], sweep: [0.15, 0.18, 0.2, 0.22] },
+  { name: "majority", label: "«Mehrheit» heisst >", group: "Entscheidung", type: "number", def: 0.5, min: 0.5, max: 0.9, step: 0.05, pct: true, sweep: [0.5, 0.6, 0.7] },
+  { name: "require_above_base_rate", label: "Muss über der Basisrate liegen", group: "Entscheidung", type: "boolean", def: true },
+  { name: "min_heavy_days", label: "Mindestens … Starkverspätungstage", group: "Entscheidung", type: "integer", def: 10, min: 3, max: 30, step: 1 },
+];
+
+/* ---- simulated engine (prototype only; real: services/hypotheses/h3_heavy_days.py) ---- */
+function hash(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return ((h >>> 0) % 10000) / 10000; }
+function compute(p) {
+  const k = Math.exp(-(p.station_late_count - 5) * 0.07), m = 1 + 0.25 * Math.min(1, (p.min_station_arrivals - 1) / 20);
+  const metric = d => p.heavy_mode === "station_share" ? Math.min(0.98, d.share * k * m)
+    : p.heavy_mode === "mean_delay" ? 0.9 + 3.6 * d.share + (hash(d.date) - 0.5) * 0.4
+    : 0.04 + 0.36 * d.share + (hash(d.date + "l") - 0.5) * 0.03;
+  const thr = p.heavy_mode === "station_share" ? p.heavy_share : p.heavy_mode === "mean_delay" ? p.mean_delay_min : p.late_share;
+  const rows = DAYS.map((d, i) => {
+    let fresh = false, known = true;
+    for (let l = 0; l <= p.snow_lag_days; l++) {
+      const j = i - l;
+      if (!DAYS[j] || DAYS[j].hn === null) { known = false; continue; }
+      if (DAYS[j].hn >= p.snow_cm) fresh = true;
+    }
+    const val = metric(d);
+    return { date: d.date, hn: d.hn, hs: d.hs, val, heavy: val > thr, snow: fresh ? true : known ? false : null };
+  });
+  const heavy = rows.filter(r => r.heavy), hk = heavy.filter(r => r.snow !== null), hs = hk.filter(r => r.snow).length;
+  const known = rows.filter(r => r.snow !== null), z = hk.length ? hs / hk.length : NaN, base = known.filter(r => r.snow).length / known.length;
+  const conds = [
+    { label: `Anteil Neuschnee an Starkverspätungstagen > ${Math.round(p.majority * 100)} %`, passed: z > p.majority, value: SF.fmtPct(z) },
+    { label: "Anteil > Basisrate (Neuschnee an allen Wintertagen)", passed: p.require_above_base_rate ? z > base : null, value: `${SF.fmtPct(z)} vs ${SF.fmtPct(base)}` },
+    { label: `Mindestens ${p.min_heavy_days} Starkverspätungstage`, passed: heavy.length >= p.min_heavy_days, value: `${heavy.length}` },
+  ];
+  const verdict = !conds[2].passed ? "unzureichende_daten" : conds[0].passed && conds[1].passed !== false ? "gestuetzt" : "nicht_gestuetzt";
+  const ct = { sk: hs, sn: hk.length - hs, su: heavy.length - hk.length, nk: known.filter(r => !r.heavy && r.snow).length,
+               nn: known.filter(r => !r.heavy && !r.snow).length, nu: rows.filter(r => !r.heavy && r.snow === null).length };
+  return { p, rows, thr, verdict, z, base, nHeavy: heavy.length, nHeavySnow: hs, nHeavyKnown: hk.length, conds, ct,
+           metricText: `${hs} / ${hk.length} Starkverspätungstage mit Neuschnee (${SF.fmtPct(z)})` };
+}
+
+const kpi = (big, label, sub) => `<div class="card p-4"><div class="text-3xl font-bold num">${big}</div><div class="text-sm mt-1">${label}</div>${sub ? `<div class="text-xs text-ink2 mt-1">${sub}</div>` : ""}</div>`;
+const METRIC = { station_share: ["Anteil Stationen mit Starkverspätung", "%"], mean_delay: ["Ø Verspätung Graubünden", "min"], late_share: ["Anteil Halte ≥ 3 min", "%"] };
+const sw = (bg) => `<span style="width:10px;height:10px;background:${bg};display:inline-block;border-radius:2px"></span>`;
+
+function render(r, ctx) {
+  const p = r.p, std = ctx.std, isVar = ctx.isVar, [mlabel, unit] = METRIC[p.heavy_mode], pct = unit === "%";
+  document.getElementById("kpis").innerHTML =
+    kpi(`${r.nHeavySnow} / ${r.nHeavyKnown}`, `Starkverspätungstage mit Neuschnee (${SF.fmtPct(r.z)})`, `${r.nHeavy} Starkverspätungstage von ${r.rows.length} Wintertagen`) +
+    kpi(SF.fmtPct(r.base), "Basisrate: Neuschnee an allen Wintertagen", "Vergleichswert – «Mehrheit» allein reicht nicht");
+  document.getElementById("tlTitle").textContent = `${mlabel} (GR) und Neuschnee Davos, 01.11.2025–30.04.2026`;
+  const x = r.rows.map(d => d.date), sameMode = p.heavy_mode === "station_share";
+  const traces = [
+    { x, y: r.rows.map(d => pct ? d.val * 100 : d.val), type: "scatter", mode: "lines", line: { color: C.ink2, width: 1.5 }, hovertemplate: `%{y:.1f} ${unit}<extra>${mlabel}</extra>` },
+    { x: r.rows.filter(d => d.heavy).map(d => d.date), y: r.rows.filter(d => d.heavy).map(d => pct ? d.val * 100 : d.val), type: "scatter", mode: "markers",
+      marker: { color: C.accent, size: 8, line: { color: C.surface, width: 2 } }, hovertemplate: "Starkverspätungstag<extra></extra>" },
+  ];
+  if (isVar && sameMode) {
+    const s = std.rows.filter(d => d.heavy);
+    traces.push({ x: s.map(d => d.date), y: s.map(d => d.val * 100), type: "scatter", mode: "markers", marker: { symbol: "circle-open", color: C.ink2, size: 12, line: { width: 1.5 } }, hovertemplate: "Standard: Starkverspätungstag<extra></extra>" });
+  }
+  traces.push({ x, y: r.rows.map(d => d.hn === null ? 0.6 : d.hn), type: "bar", yaxis: "y2",
+    marker: { color: r.rows.map(d => d.snow === null ? C.empty : d.hn !== null && d.hn >= p.snow_cm ? C.seq[4] : d.snow ? C.seq[2] : C.seq[0]),
+              pattern: { shape: r.rows.map(d => d.hn === null ? "/" : ""), fgcolor: C.other, size: 4 } },
+    customdata: r.rows.map(d => [d.hs, d.snow === null ? "unbekannt" : d.snow ? "ja" : "nein"]),
+    hovertemplate: "ΔHS %{y:.0f} cm · HS %{customdata[0]:.0f} cm · Neuschneetag: %{customdata[1]}<extra>Davos</extra>" });
+  const hline = (yv, yref, color, dash, width) => ({ type: "line", xref: "paper", x0: 0, x1: 1, yref, y0: yv, y1: yv, line: { color, dash, width } });
+  const shapes = [];
+  if (!isVar || sameMode && p.heavy_share === ctx.DEFAULTS.heavy_share) shapes.push(hline(pct ? r.thr * 100 : r.thr, "y", C.ink2, "dash", 1));
+  else { shapes.push(hline(pct ? r.thr * 100 : r.thr, "y", C.accent, "dash", 2)); if (sameMode) shapes.push(hline(std.thr * 100, "y", C.ink2, "dot", 1)); }
+  const snowStd = p.snow_cm === ctx.DEFAULTS.snow_cm;
+  shapes.push(hline(p.snow_cm, "y2", snowStd ? C.ink2 : C.accent, "dash", snowStd ? 1 : 2));
+  if (!snowStd) shapes.push(hline(ctx.DEFAULTS.snow_cm, "y2", C.ink2, "dot", 1));
+  const base = SF.layout();
+  Plotly.react("timeline", traces, SF.layout({ height: window.innerWidth < 640 ? 380 : 440, hovermode: "x unified", bargap: 0.15, shapes, margin: { l: 44, r: 8, t: 6, b: 30 },
+    xaxis: { ...base.xaxis, type: "date", tickformat: "%b %Y", dtick: "M1", anchor: "y2", showspikes: true, spikemode: "across", spikethickness: 1, spikecolor: C.axis },
+    yaxis: { ...base.yaxis, domain: [0.42, 1], title: { text: unit, font: { size: 11, color: C.ink2 } }, rangemode: "tozero" },
+    yaxis2: { ...base.yaxis, domain: [0, 0.32], title: { text: "cm", font: { size: 11, color: C.ink2 } }, rangemode: "tozero" } }), SF.config("H3_timeline"));
+  document.getElementById("legend").innerHTML = [
+    `<span class="inline-flex items-center gap-1"><span class="dot" style="background:${C.accent}"></span>Starkverspätungstag${isVar ? " (Variante)" : ""}</span>`,
+    isVar && sameMode ? `<span class="inline-flex items-center gap-1"><span class="dot" style="border:1.5px solid ${C.ink2}"></span>Standard: stark</span>` : "",
+    `<span class="inline-flex items-center gap-1">${sw(C.seq[4])}ΔHS ≥ ${p.snow_cm} cm</span>`,
+    `<span class="inline-flex items-center gap-1">${sw(C.seq[2])}Neuschneetag (Vortag)</span>`,
+    `<span class="inline-flex items-center gap-1">${sw("repeating-linear-gradient(45deg,var(--chart-empty) 0 2px,var(--other) 2px 3px)")}unbekannt</span>`,
+    `<span class="inline-flex items-center gap-1"><span style="width:14px;border-top:1px dashed ${C.ink2};display:inline-block"></span>Schwelle${isVar ? ` · <span style="color:${C.accent}">Variante</span>` : ""}</span>`,
+  ].join("");
+  const c = r.ct;
+  document.getElementById("crosstab").innerHTML = `
+    <thead><tr><th></th><th class="r">Neuschnee</th><th class="r">kein</th><th class="r">unbek.</th><th class="r">Σ</th></tr></thead>
+    <tbody><tr><th scope="row">Starkverspätung</th><td class="r"><b>${c.sk}</b></td><td class="r">${c.sn}</td><td class="r">${c.su}</td><td class="r">${c.sk + c.sn + c.su}</td></tr>
+    <tr><th scope="row">normal</th><td class="r">${c.nk}</td><td class="r">${c.nn}</td><td class="r">${c.nu}</td><td class="r">${c.nk + c.nn + c.nu}</td></tr></tbody>`;
+  renderEvents(r);
+  window.CUR = r;
+}
+
+/* ---- event-aligned timeline (superposed epoch): day 0 = first day of a fresh-snow event ---- */
+const LAGS = [-3, -2, -1, 0, 1, 2, 3, 4, 5];
+function renderEvents(r) {
+  const p = r.p, rows = r.rows, events = [];
+  rows.forEach((d, i) => { const snow = d.hn !== null && d.hn >= p.snow_cm, prev = rows[i - 1];
+    if (snow && !(prev && prev.hn !== null && prev.hn >= p.snow_cm)) events.push(i); });
+  const base = rows.filter(d => d.heavy).length / rows.length;
+  // raster: rows = events (newest on top), cols = lag; 1 = heavy, 0 = normal, null = outside period
+  const z = events.map(i => LAGS.map(l => rows[i + l] ? (rows[i + l].heavy ? 1 : 0) : null));
+  const ylab = events.map(i => `${SF.fmtDate(rows[i].date).slice(0, 6)} · ${rows[i].hn.toFixed(0)} cm`);
+  const hov = events.map(i => LAGS.map(l => { const d = rows[i + l]; return d ? `${SF.fmtDate(d.date)} (Tag ${l > 0 ? "+" : ""}${l})<br>${d.heavy ? "Starkverspätungstag" : "normal"} · ΔHS ${d.hn ?? "–"} cm` : "ausserhalb Zeitraum"; }));
+  const win = { type: "rect", xref: "x", yref: "paper", x0: -0.5, x1: p.snow_lag_days + 0.5, y0: 0, y1: 1, fillcolor: "rgba(57,135,229,.16)", line: { width: 0 }, layer: "below" };
+  const L0 = SF.layout();
+  Plotly.react("evRaster", [{ z, x: LAGS, y: ylab, type: "heatmap", xgap: 3, ygap: 3, zmin: 0, zmax: 1, showscale: false,
+    colorscale: [[0, C.grid], [0.5, C.grid], [0.5, C.accent], [1, C.accent]], customdata: hov, hovertemplate: "%{customdata}<extra></extra>" }],
+    SF.layout({ height: 70 + events.length * 24, margin: { l: 104, r: 10, t: 6, b: 34 }, plot_bgcolor: C.surface,
+      shapes: [{ ...win, layer: "above", fillcolor: "rgba(0,0,0,0)", line: { color: C.accent, width: 1, dash: "dot" } }],
+      xaxis: { ...L0.xaxis, tickvals: LAGS, ticktext: LAGS.map(l => l === 0 ? "<b>0</b>" : (l > 0 ? `+${l}` : `${l}`)), title: { text: "Tage relativ zum Neuschnee" }, showgrid: false, zeroline: false },
+      yaxis: { ...L0.yaxis, autorange: "reversed", showgrid: false, tickfont: { size: 10, color: C.ink2 } } }), SF.config("H3_ereignisse"));
+  // share of heavy days per lag (for the summary line; the bar chart was removed 07.11.2026)
+  const share = LAGS.map(l => { const v = events.map(i => rows[i + l]).filter(Boolean); return v.length ? v.filter(d => d.heavy).length / v.length : null; });
+  const peak = LAGS[share.indexOf(Math.max(...share.filter(s => s !== null)))];
+  document.getElementById("evMeta").innerHTML = `${events.length} Neuschnee-Ereignisse (ΔHS ≥ ${p.snow_cm} cm) im Winter 2025/26 · höchster Anteil an Tag <b>${peak > 0 ? "+" : ""}${peak}</b> · Basisrate ${Math.round(base * 100)} %`;
+  document.getElementById("evLegend").innerHTML = `<span class="inline-flex items-center gap-1"><span style="width:10px;height:10px;background:${C.accent};display:inline-block;border-radius:2px"></span>Starkverspätungstag</span>
+    <span class="inline-flex items-center gap-1"><span style="width:10px;height:10px;background:var(--chart-grid);border:1px solid var(--chart-axis);display:inline-block;border-radius:2px"></span>normal</span>
+    <span class="inline-flex items-center gap-1"><span style="width:12px;height:10px;border:1px dotted ${C.accent};display:inline-block"></span>zählt laut Regel als Neuschneetag (Tag 0…+${p.snow_lag_days})</span>`;
+}
+
+const STATIONS = ["Chur", "Landquart", "Davos Platz", "Klosters Platz", "Filisur", "St. Moritz", "Samedan", "Pontresina", "Thusis", "Ilanz", "Disentis/Mustér", "Scuol-Tarasp", "Arosa", "Zernez", "Bergün/Bravuogn"];
+function showDay(date) {
+  const r = window.CUR.rows.find(d => d.date === date); if (!r) return;
+  const top = STATIONS.map(s => ({ s, n: Math.round(4 + hash(date + s) * 40 * (r.heavy ? 1.6 : 0.8)), c: Math.round(hash(s + date) * (r.snow ? 9 : 3)) })).sort((a, b) => b.n - a.n).slice(0, 10);
+  document.getElementById("dayPanel").innerHTML = `
+    <h2 class="font-semibold mb-1">Tag gewählt: ${SF.fmtDate(date)}</h2>
+    <div class="flex flex-wrap gap-2 mb-2 text-xs">${r.heavy ? '<b>● Starkverspätungstag</b>' : '<span class="text-ink2">kein Starkverspätungstag</span>'}
+      <span class="text-ink2">HS ${r.hs ?? "–"} cm · ΔHS ${r.hn ?? "unbekannt"} cm · Neuschneetag: ${r.snow === null ? "unbekannt" : r.snow ? "ja" : "nein"}</span></div>
+    <table class="tbl num"><thead><tr><th>Station (Beispiel)</th><th class="r">Ankünfte ≥ 3 min</th><th class="r">Ausfälle</th></tr></thead>
+    <tbody>${top.map(t => `<tr><td>${t.s}</td><td class="r">${t.n}</td><td class="r">${t.c}</td></tr>`).join("")}</tbody></table>`;
+}
+
+const VIS_H3 = [  // chosen techniques (UI-SPEC §2.9)
+  { id: "A1", tech: "3.3 + 3.1", prio: "S", title: "Pixel-Matrix: GR-Stationen × Wintertage", rail: "Pixel-Matrix", sample: "Verspätung Beispiel · ΔHS echt",
+    note: "Oben echter Neuschnee in Davos (ΔHS), ▼ = Starkverspätungstag. Darunter jede GR-Station (nach Höhe sortiert) × Tag, Farbe = Anteil Halte ≥ 3 min. Zeigt, ob ein Starkverspätungstag die ganze Region trifft oder nur einige Bergstationen. Klick auf einen Tag → stärkste Stationen.",
+    source: "Quellen: MeteoSchweiz SMN (DAV, ΔHS) · Stationen und Höhen aus der Stationsliste · Verspätungen je Station und Tag = Beispiel, bis die Ist-Daten 11/2025–04/2026 geladen sind", draw: (el) => VIS.drawA1(el) },
+  { id: "A2", tech: "3.1", prio: "C", title: "Overview + Detail: ganzer Winter mit Range-Slider", rail: "Overview + Detail", sample: "Beispiel",
+    note: "Unten der ganze Winter als Übersicht, oben das gewählte Fenster (Griffe ziehen). Gestrichelt = Schwelle Starkverspätungstag (50 % der Stationen). Einzelne Tage bleiben auch auf dem Handy lesbar.",
+    source: "Anteil GR-Stationen mit Starkverspätung je Tag – Beispieldaten, bis die Ist-Daten geladen sind", draw: (el) => VIS.drawA2(el) },
+];
+
+HPage.init({
+  code: "H3", topic: "Wetter / Anomalie", prev: "02-h2.html", prevLabel: "H2", next: "04-h4.html", nextLabel: "H4",
+  statement: "Die Mehrheit der Tage, die im Winter 2025/26 für Graubünden als ungewöhnlich verspätungsintensiv eingestuft wurden, wies in Davos Neuschnee auf.",
+  question: "Hatten die stärksten Verspätungstage in Graubünden im Winter 2025/26 Neuschnee in Davos?",
+  banner: "Beispieldaten · Verspätungen simuliert (Ist-Daten 11/2025–04/2026 noch nicht geladen) · Neuschnee Davos = echte MeteoSchweiz-Daten",
+  resultTag: "Beispieldaten – kein echtes Urteil",
+  navStatus: { H1: P.h1.verdict, H2: P.h2.verdict, H3: "unzureichende_daten", H4: "unzureichende_daten", H5: "unzureichende_daten" },
+  DESC, compute, render, csvTable: "days",
+  evidenceHtml: `
+    <section class="grid sm:grid-cols-2 gap-3" id="kpis" aria-label="Kennzahlen" data-rail="Kennzahlen"></section>
+    <section class="viz-card p-4 min-w-0" data-rail="Zeitverlauf">
+      <h2 class="font-semibold" id="tlTitle"></h2>
+      <p class="text-xs text-ink2 mb-2">Oben: tägliche Kennzahl Graubünden mit Schwelle · unten: Neuschnee Davos (ΔHS, cm) · gleiche Zeitachse. Klick auf einen Tag → Details.</p>
+      <div id="legend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 mb-1"></div>
+      <div id="timeline" class="chart" style="height:440px"></div>
+      <div class="source">Quelle: Ist-Daten (history), opentransportdata.swiss – <b>hier simuliert</b> · MeteoSchweiz SwissMetNet, Station DAV (Schneehöhe, ΔHS als Neuschnee-Proxy)</div>
+    </section>
+    <section class="viz-card p-4 min-w-0" data-rail="Ereignisse">
+      <h2 class="font-semibold">Ereignis-Ausrichtung: Neuschnee → Starkverspätung</h2>
+      <p class="text-xs text-ink2 mb-2" id="evMeta"></p>
+      <div class="text-sm font-semibold">Jedes Neuschnee-Ereignis (Zeile) und die Tage davor/danach</div>
+      <div id="evLegend" class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink2 my-1"></div>
+      <div id="evRaster" class="chart"></div>
+      <div class="source">Tag 0 = erster Tag eines Neuschnee-Ereignisses (ΔHS ≥ Schwelle in Davos; aufeinanderfolgende Schneetage = ein Ereignis). Basisrate = Anteil Starkverspätungstage an allen Wintertagen. Gepunktet umrandet = Fenster, das die Regel «Vortage zählen mit» als Neuschneetag wertet. Quelle: MeteoSchweiz DAV (echt) · Verspätungen <b>simuliert</b></div>
+    </section>
+    <div class="grid gap-5 md:grid-cols-2" data-rail="Kreuztabelle">
+      <section class="card p-4"><h2 class="font-semibold mb-2">Kreuztabelle (Tage)</h2><table class="tbl num" id="crosstab"></table>
+        <p class="text-xs text-ink2 mt-2">«unbek.» = Schneehöhe am Tag oder Vortag zu &lt; 90 % gemessen → ausgeschlossen.</p></section>
+      <section class="card p-4" id="dayPanel" aria-live="polite"><h2 class="font-semibold mb-2">Tag gewählt</h2><p class="text-sm text-ink2">Klicke im Zeitverlauf auf einen Tag.</p></section>
+    </div>` + VIS.sections(VIS_H3),
+  defs: r => {
+    const p = r.p, mode = { station_share: `Station «stark», wenn &gt; ${p.station_late_count} Ankünfte ≥ 3 min; Tag stark, wenn &gt; ${Math.round(p.heavy_share * 100)} % der GR-Stationen (mit ≥ ${p.min_station_arrivals} Ankunft) stark sind`,
+      mean_delay: `Tag stark, wenn Ø Verspätung GR &gt; ${p.mean_delay_min} min`, late_share: `Tag stark, wenn Anteil Halte ≥ 3 min &gt; ${Math.round(p.late_share * 100)} %` }[p.heavy_mode];
+    return ["Winter 2025/26 = 01.11.2025–30.04.2026 (BFS-Tourismussaison)",
+      `Neuschneetag = ΔHS ≥ ${p.snow_cm} cm in Davos am Tag${p.snow_lag_days ? ` oder an den ${p.snow_lag_days} Vortag(en)` : ""} (Proxy aus Schneehöhe)`,
+      `${mode}`, "Ausfälle zählen nicht als Verspätung · nur Ist-Daten"];
+  },
+  basis: r => [`Zeitraum: ${r.rows.length} Tage`, "Stationen GR: 2 440 (mit Ist-Zeit am Tag)",
+    `Ausgeschlossen (Neuschnee unbekannt): ${r.rows.filter(d => d.snow === null).length} Tage`, "Datenversion: proto-2026-10-15"],
+  seedVariants: [
+    { id: 7, name: "Neuschnee ≥ 10 cm", author: "Mai", date: "15.10.", pinned: true, params: { snow_cm: 10 } },
+    { id: 8, name: "Ø Verspätung > 3 min", author: "Lukas", date: "15.10.", pinned: false, params: { heavy_mode: "mean_delay" } },
+    { id: 9, name: "Ø > 3 min, nur Tag selbst", author: "Lukas", date: "15.10.", pinned: false, parent: 8, params: { heavy_mode: "mean_delay", snow_lag_days: 0 } },
+  ],
+  afterInit: () => { document.getElementById("timeline").on("plotly_click", ev => showDay(ev.points[0].x.slice(0, 10))); VIS.mount(VIS_H3); },
+});
+</script>
+</body>
+</html>

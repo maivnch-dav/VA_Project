@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "va-project"
+version = "0.1.0"
+description = "Visual Analytics tool linking Swiss GTFS-RT, BFS HESTA and MeteoSwiss data"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # UI
+    "dash>=2.17",
+    "dash-bootstrap-components>=1.6",
+    "dash-deck>=0.0.1",
+    "plotly>=5.22",
+    # Data & storage
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "duckdb>=1.0",
+    "sqlalchemy>=2.0",
+    # Config & validation
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    # Collectors
+    "requests>=2.32",
+    "apscheduler>=3.10,<4",
+    "gtfs-realtime-bindings>=1.0",
+    # Analysis
+    "scikit-learn>=1.5",
+    "umap-learn>=0.5.6",
+    "statsmodels>=0.14",
+    # numba/llvmlite stopped shipping Intel-Mac wheels after 0.62/0.45 → pin only there
+    "numba>=0.60,<0.63; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "responses>=0.25",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pandas-stubs>=2.2",
+    "types-requests>=2.32",
+    "types-protobuf>=5.27",
+]
+
+eda = [
+    "matplotlib>=3.9",
+    "ipykernel>=6.29",
+    "nbformat>=5.10",
+    "nbclient>=0.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/va_project"]
+
+# --- pytest -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -m \"not network\" --cov=va_project --cov-report=term-missing"
+markers = [
+    "network: calls a real external API (deselect with -m 'not network')",
+]
+filterwarnings = ["error::DeprecationWarning:va_project.*"]
+
+[tool.coverage.run]
+branch = true
+source = ["va_project"]
+
+# --- ruff -------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = [".claude", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # allow umlauts/Vietnamese in strings & comments
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is fine in tests
+
+# --- mypy -------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["va_project"]
+
+[[tool.mypy.overrides]]
+module = ["dash.*", "dash_bootstrap_components.*", "dash_deck.*", "plotly.*",
+          "duckdb.*", "pyarrow.*", "apscheduler.*", "google.transit.*", "sklearn.*", "umap.*",
+          "statsmodels.*"]
+ignore_missing_imports = true

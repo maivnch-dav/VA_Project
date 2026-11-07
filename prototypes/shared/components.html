@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Komponenten – SwissFlow VA</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="app.js"></script>
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+<main class="max-w-4xl mx-auto px-4 py-8 grid gap-6">
+  <div><a href="../index.html" class="text-sm" style="color:var(--accent)">‹ Prototypen</a>
+    <h1 class="text-2xl font-bold mt-1">Komponenten</h1>
+    <p class="text-ink2">Dash-Entsprechung jeweils in Klammern.</p></div>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">VerdictBadge (VerdictBadge) – immer Icon + Text</h2>
+    <div class="flex flex-wrap gap-3 items-center" id="badges"></div>
+    <div class="flex flex-wrap gap-3 items-center mt-3" id="badgesSm"></div>
+    <div class="flex flex-wrap gap-4 items-center mt-3 text-sm"><span class="inline-flex items-center gap-1"><span class="dot supported"></span>Nav-Punkt gestützt</span>
+      <span class="inline-flex items-center gap-1"><span class="dot rejected"></span>nicht gestützt</span><span class="inline-flex items-center gap-1"><span class="dot unknown"></span>unzureichend</span></div>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">Tags (ChangedChip, Variante, Beispieldaten)</h2>
+    <div class="flex flex-wrap gap-3 items-center">
+      <span class="tag-variant">Variante (nicht offiziell)</span><span class="tag-variant">2 geändert</span>
+      <span class="tag-sample">Beispieldaten</span><span class="text-xs font-semibold text-ink2">Standard</span></div>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">Buttons</h2>
+    <div class="flex flex-wrap gap-3"><button class="btn btn-primary">Als Variante speichern…</button><button class="btn">↺ Standard</button>
+      <button class="btn">CSV ↓</button><button class="btn btn-ghost">Ansehen →</button><button class="btn" disabled>Deaktiviert</button>
+      <button class="icon-btn" aria-label="Zurücksetzen">↺</button></div>
+  </section>
+
+  <section class="card p-5 grid gap-5 md:grid-cols-2">
+    <h2 class="section-title md:col-span-2">RuleEditor-Controls (RuleEditor – aus /parameters erzeugt)</h2>
+    <div><div class="flex items-center gap-2"><label class="field-label flex-1" for="n1">Neuschnee ab</label></div>
+      <div class="flex items-center gap-2 mt-1"><input type="range" min="1" max="50" value="5" aria-label="Neuschnee ab"><input id="n1" class="input num" style="width:76px" type="number" value="5"><span class="text-xs text-ink2 w-8">cm</span></div>
+      <div class="field-help">NumberField · Standardwert</div></div>
+    <div><div class="flex items-center gap-2"><label class="field-label flex-1" for="n2">Neuschnee ab</label><span class="changed-mark">Standard: 5 cm</span><button class="icon-btn" aria-label="zurücksetzen">↺</button></div>
+      <div class="flex items-center gap-2 mt-1"><input type="range" min="1" max="50" value="10" aria-label="Neuschnee ab"><input id="n2" class="input num changed" style="width:76px" type="number" value="10"><span class="text-xs text-ink2 w-8">cm</span></div>
+      <div class="field-help">NumberField · geändert</div></div>
+    <div><label class="field-label" for="n3">Mehrheit heisst &gt;</label>
+      <div class="flex items-center gap-2 mt-1"><input type="range" min="50" max="90" value="95" aria-label="Mehrheit"><input id="n3" class="input num invalid" style="width:76px" type="number" value="95"><span class="text-xs text-ink2 w-8">%</span></div>
+      <div class="field-help" style="color:var(--critical)">Erlaubt: 50–90</div></div>
+    <div class="flex items-center gap-3"><label class="field-label flex-1" for="s1">Muss über der Basisrate liegen</label><label class="switch"><input id="s1" type="checkbox" checked><span></span></label></div>
+    <div><div class="field-label">Starkverspätung definiert als (RadioGroup)</div>
+      <label class="flex items-center gap-2 text-sm mt-1"><input type="radio" name="m" checked style="accent-color:var(--accent)">Anteil Stationen <span class="field-help">(Standard)</span></label>
+      <label class="flex items-center gap-2 text-sm"><input type="radio" name="m" style="accent-color:var(--accent)">Ø Verspätung</label></div>
+    <div><div class="field-label mb-1">Gruppenzuordnung H1 (SegmentedGroup)</div>
+      <div class="flex items-center gap-3 text-sm"><span class="flex-1">Wallis</span><span class="seg" role="group" aria-label="Wallis"><button aria-pressed="true">CH</button><button aria-pressed="false">Int.</button><button aria-pressed="false">–</button></span></div>
+      <div class="flex items-center gap-3 text-sm mt-2"><span class="flex-1">Genf</span><span class="seg" role="group" aria-label="Genf"><button aria-pressed="false">CH</button><button aria-pressed="true">Int.</button><button aria-pressed="false">–</button></span></div></div>
+    <div class="md:col-span-2"><div class="field-label mb-1">Städte H5 (ChipSelect, max. 5)</div>
+      <div class="flex flex-wrap gap-2"><span class="chip is-current">Zürich ✕</span><span class="chip is-current">Bern ✕</span><span class="chip">+ Gemeinde</span></div></div>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">SweepStrip</h2>
+    <div class="flex flex-wrap gap-2"><span class="chip">✓ 3 cm</span><span class="chip is-standard is-current">✓ 5 cm</span><span class="chip">✕ 10 cm</span><span class="chip">✕ 20 cm</span></div>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">ResultCompare</h2>
+    <div class="grid gap-2" id="rc"></div>
+  </section>
+
+  <section class="card p-5">
+    <h2 class="section-title mb-3">ConditionTable</h2>
+    <table class="tbl num"><thead><tr><th>Bedingung</th><th>Standard</th><th style="color:var(--accent)">Variante</th></tr></thead>
+      <tbody><tr><td>Anteil &gt; 50 %</td><td><span style="color:var(--v-supported)">✓</span> 64 %</td><td class="diff"><span style="color:#a82a2a">✕</span> 41 %</td></tr>
+      <tr><td>Anteil &gt; Basisrate</td><td><span style="color:var(--v-supported)">✓</span> 64 % vs 31 %</td><td><span style="color:var(--v-supported)">✓</span> 41 % vs 22 %</td></tr></tbody></table>
+  </section>
+
+  <section class="card p-5 grid gap-3">
+    <h2 class="section-title">MissingDataNotice · EmptyState · Fehler</h2>
+    <div class="text-sm rounded p-3" style="background:var(--v-unknown-bg)"><b>Unzureichende Daten.</b> Fehlt: Ist-Daten 11/2025–04/2026. Die Regeln lassen sich trotzdem einstellen.
+      <a href="#" class="underline" style="color:var(--accent)">Zur Datenqualität ↗</a></div>
+    <div class="text-sm rounded p-3 border" style="border-color:var(--grid)">Keine Daten für diese Auswahl.</div>
+    <div class="text-sm rounded p-3 flex items-center gap-3" style="background:var(--v-rejected-bg);color:#a82a2a">Berechnung fehlgeschlagen.<button class="btn ml-auto">Erneut versuchen</button></div>
+    <div><span class="skeleton inline-block w-48 h-5"></span> <span class="text-xs text-ink2">wird berechnet…</span></div>
+  </section>
+</main>
+<script>
+const vs = ["gestuetzt", "nicht_gestuetzt", "unzureichende_daten"];
+document.getElementById("badges").innerHTML = vs.map(v => SF.badge(v)).join("");
+document.getElementById("badgesSm").innerHTML = vs.map(v => SF.badge(v, "sm")).join("");
+document.getElementById("rc").innerHTML = `
+  <div class="flex flex-wrap items-center gap-3"><span class="text-xs font-semibold text-ink2 w-40">Standard</span>${SF.badge("gestuetzt")}<span class="text-sm num">14 / 22 Tage (64 %)</span></div>
+  <div class="flex flex-wrap items-center gap-3"><span class="w-40"><span class="tag-variant">Variante (nicht offiziell)</span></span>${SF.badge("nicht_gestuetzt")}<span class="text-sm num diff">9 / 22 Tage (41 %)</span></div>`;
+</script>
+</body>
+</html>
