@@ -14,10 +14,10 @@ Internetverbindung nötig (Tailwind, Plotly und Schriften kommen von CDNs). Date
 
 ## 2. Startseite der App starten (Dash)
 
-Voraussetzung: Python 3.12, am einfachsten mit [uv](https://docs.astral.sh/uv/).
+Voraussetzung: Python 3.13, am einfachsten mit [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv venv --python 3.12 .venv
+uv venv --python 3.13.5 .venv
 uv pip install -e .
 .venv/bin/python -m va_project.app.dash_app
 ```
