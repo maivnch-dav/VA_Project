@@ -1,5 +1,5 @@
 // Tiny falling snowflakes on a <canvas> behind page headers (decorative, aria-hidden; UI-SPEC §0.5).
-// Used by 00-daten, 00-hypothesen and the hypothesis pages (hpage.js). Usage: SFSnow(canvasElement)
+// Used by 00-overview, 00-hypothesen and the hypothesis pages (hpage.js). Usage: SFSnow(canvasElement)
 // Paused while the intro is off-screen or the tab is hidden; reduced motion → one still frame.
 function SFSnow(canvas) {
   const ctx = canvas.getContext("2d"), still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -77,7 +77,7 @@ const SF = {
   },
   nav(current) {
     const H = window.NAV_STATUS || {};
-    const items = [["00-daten.html", "Daten", null], ["00-hypothesen.html", "Hypothesen", null], ["01-h1.html", "H1", H.H1], ["02-h2.html", "H2", H.H2],
+    const items = [["00-overview.html", "Daten", null], ["00-hypothesen.html", "Hypothesen", null], ["01-h1.html", "H1", H.H1], ["02-h2.html", "H2", H.H2],
                    ["03-h3.html", "H3", H.H3], ["04-h4.html", "H4", H.H4], ["05-h5.html", "H5", H.H5], ["#quality", "Datenqualität", null]];
     const link = ([href, label, v]) => {
       const dot = v ? `<span class="dot ${SF.verdicts[v].cls}" aria-label="${SF.verdicts[v].label}"></span>` : "";
@@ -86,7 +86,7 @@ const SF = {
     return `
     <header class="navy-scope sticky top-0 z-40 border-b" style="background:var(--nav-bg);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-color:var(--border)">
       <div class="max-w-screen-xl mx-auto px-4 h-14 flex items-center gap-3">
-        <a href="00-daten.html" class="flex items-center gap-2 font-bold text-ink no-underline"><span class="brand-mark">+</span><span class="display text-lg">SwissFlow&nbsp;VA</span></a>
+        <a href="00-overview.html" class="flex items-center gap-2 font-bold text-ink no-underline"><span class="brand-mark">+</span><span class="display text-lg">SwissFlow&nbsp;VA</span></a>
         <nav class="hidden lg:flex items-center gap-1 ml-4" aria-label="Seiten">${items.map(link).join("")}</nav>
         <span class="ml-auto hidden md:inline text-xs" style="color:var(--muted)">Daten bis 30.09.2026</span>
         ${SF.themePicker()}

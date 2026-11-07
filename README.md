@@ -4,11 +4,16 @@ Visual-Analytics-Werkzeug (FHGR, Visual Analytics): öffentlicher Verkehr (Ist-D
 
 ## 1. Prototypen ansehen (ohne Installation)
 
-`prototypes/index.html` im Browser öffnen. Von dort führen Links zu allen Seiten:
+`prototypes/00-overview.html` im Browser öffnen. Über die Navigation erreicht man alle Seiten:
 
-- **Start · Datenüberblick** (`00-daten.html`)
-- **Hypothesen** (`00-hypothesen.html`)
-- **H1–H5** (`01-h1.html` … `05-h5.html`)
+- **Datenüberblick** (`00-overview.html`) – Startseite mit Kennzahlen und Kantonskarte
+- **H1 PCA** (`01-h1.html`) – Dimensionsreduktion (PCA) der Quellmärkte und Tourismusregionen
+- **H2 Saison** (`02-h2.html`) – Saisonale Verteilung der Quellmärkte
+- **H3 Anomalie** (`03-h3.html`) – Wetteranomalie: Neuschnee in Davos gegenüber Graubünden
+- **H4 Neuschnee** (`04-h4.html`) – Korrelation von Neuschnee, kurzfristigen Verkehrsstörungen und monatlichen Logiernächten
+- **H5 Intensität** (`05-h5.html`) – Korrelation von monatlicher Tourismusintensität und Verspätungen
+
+H1–H5 = Hypothese 1–5.
 
 Internetverbindung nötig (Tailwind, Plotly und Schriften kommen von CDNs). Daten mit dem Etikett «Beispiel» sind simuliert, bis alle Ist-Daten geladen sind.
 
@@ -40,4 +45,3 @@ Klick auf einen Kanton oder Lasso über mehrere Blasen → Monatsverläufe recht
 - Kantonsgrenzen: swisstopo swissBOUNDARIES3D
 - Kartenkacheln: © OpenStreetMap, © CARTO
 
-UI-Spezifikation: `docs/UI-SPEC.md`.

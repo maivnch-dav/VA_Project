@@ -139,7 +139,7 @@ a { color: var(--link); }
 .viz-card .btn-close-panel:hover { border-color: var(--accent); }
 .month-picker { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-2); }
 
-/* KPI cards on `/` (prototype 00-daten.html: grid 2 / 3 / 6, surface cards, mono numbers, sparkline) */
+/* KPI cards on `/` (prototype 00-overview.html: grid 2 / 3 / 6, surface cards, mono numbers, sparkline) */
 .kpi-card { padding: 12px; min-width: 0; height: 100%; display: flex; flex-direction: column; }
 .kpi-card .kpi-label { font-size: var(--fs-xs); color: var(--ink-2); }
 .kpi-card .kpi-value { font-size: 1.5rem; line-height: 2rem; margin-top: 4px; }

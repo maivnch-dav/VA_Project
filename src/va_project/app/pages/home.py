@@ -74,13 +74,6 @@ def _hint() -> html.Div:
     )
 
 
-def _header() -> html.Header:
-    """Prototype page header (00-daten.html): big display title. The prototype's filters
-    (Von/Bis/Region/Vorschau) drive panels that are not built yet, so they are left out."""
-    return html.Header(html.H1("Datenüberblick", className="display page-title"),
-                       className="page-header")  # fmt: skip
-
-
 def _map_card(options: list[dict[str, str]], default: str | None) -> html.Section:
     picker = html.Label(
         [
@@ -178,10 +171,9 @@ def layout(settings: Settings) -> html.Div:
     options, default, problem = _month_options(settings)
     kpis = _kpis(settings)
     if problem is not None:
-        return html.Div([_header(), kpis, problem])
+        return html.Div([kpis, problem])
     return html.Div(
         [
-            _header(),
             kpis,
             # one row, stretched: the map card grows to the height of the detail card
             dbc.Row(

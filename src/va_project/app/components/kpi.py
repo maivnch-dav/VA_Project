@@ -1,4 +1,4 @@
-"""KPI cards of the start page (prototype 00-daten.html `renderKpis`, US-27 AC2)."""
+"""KPI cards of the start page (prototype 00-overview.html `renderKpis`, US-27 AC2)."""
 
 from __future__ import annotations
 
